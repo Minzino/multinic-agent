@@ -87,3 +87,6 @@ echo -e "${YELLOW}./nerdctl-deploy.sh${NC}"
 echo -e "\n${YELLOW}⚠️  주의: buildkitd는 백그라운드에서 실행됩니다${NC}"
 echo -e "시스템 재부팅 시 다시 시작해야 합니다"
 echo -e "자동 시작을 원한다면: ${YELLOW}sudo systemctl enable buildkitd${NC}"
+
+echo -e "\n${BLUE}🔧 systemd 서비스 설정 (권장):${NC}"
+echo -e "${YELLOW}./setup-buildkit.sh 스크립트를 실행하면 자동 시작이 설정됩니다${NC}"
