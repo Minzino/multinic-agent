@@ -33,14 +33,24 @@ MultiNIC 네트워크 설정 관리를 위한 Kubernetes DaemonSet 에이전트
 
 ## 설치 방법
 
-### 빠른 배포 (containerd + nerdctl 환경)
+### 빠른 배포 (권장)
 
 ```bash
-# containerd + nerdctl 환경에서 원클릭 배포
-./scripts/nerdctl-deploy.sh
+# 자동으로 사용 가능한 도구 감지하여 배포
+./scripts/simple-deploy.sh
 
 # 환경 변수로 설정 변경
-NAMESPACE=multinic-dev IMAGE_TAG=dev ./scripts/nerdctl-deploy.sh
+NAMESPACE=multinic-dev IMAGE_TAG=dev ./scripts/simple-deploy.sh
+```
+
+### containerd + nerdctl 환경
+
+```bash
+# buildkit이 없는 경우 설치
+./scripts/setup-buildkit.sh
+
+# buildkit 설치 후 배포
+./scripts/nerdctl-deploy.sh
 ```
 
 ### Helm을 사용한 설치
