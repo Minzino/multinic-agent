@@ -61,7 +61,7 @@ func NewClient(cfg Config, logger *logrus.Logger) (*Client, error) {
 
 func (c *Client) GetPendingInterfaces(nodeName string) ([]MultiInterface, error) {
 	query := `
-		SELECT id, attached_node_name, mac_address, netplan_success, 
+		SELECT id, attached_node_name, macaddress, netplan_success, 
 			   ip_address, subnet_mask, gateway, dns, vlan, created_at, updated_at
 		FROM multi_interface 
 		WHERE netplan_success = 0 AND attached_node_name = ?
