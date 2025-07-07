@@ -51,14 +51,23 @@ func (m *NetplanManager) ApplyConfiguration(configData []byte, interfaceName str
 	configPath := filepath.Join(netplanDir, filename)
 
 	// 백업 생성
+	m.logger.WithField("config_path", configPath).Info("[Netplan] 기존 설정 백업 시작")
 	if err := m.createBackup(configPath); err != nil {
-		m.logger.WithError(err).Warn("백업 생성 실패")
+		m.logger.WithError(err).Warn("[Netplan] 백업 생성 실패 - 계속 진행")
+	} else {
+		m.logger.Info("[Netplan] 백업 생성 완료")
 	}
 
 	// 설정 파일 쓰기
+	m.logger.WithFields(logrus.Fields{
+		"config_path": configPath,
+		"config_size": len(configData),
+	}).Info("[Netplan] 새 설정 파일 작성 시작")
+	
 	if err := os.WriteFile(configPath, configData, 0644); err != nil {
 		return fmt.Errorf("설정 파일 쓰기 실패: %w", err)
 	}
+	m.logger.Info("[Netplan] 설정 파일 작성 완료")
 
 	// netplan apply 실행
 	if err := m.applyNetplan(); err != nil {
@@ -71,17 +80,23 @@ func (m *NetplanManager) ApplyConfiguration(configData []byte, interfaceName str
 }
 
 func (m *NetplanManager) applyNetplan() error {
-	// 먼저 netplan try로 안전하게 테스트 (120초 타임아웃)
-	m.logger.Info("netplan try로 설정 테스트 중...")
-	cmd := exec.Command("/usr/sbin/netplan", "try", "--timeout=120")
+	// 컨테이너에서 호스트의 netplan 실행을 위해 nsenter 사용
+	m.logger.Info("[Netplan] 설정 테스트 시작 - netplan try 실행")
+	
+	// nsenter를 사용하여 호스트 네임스페이스에서 명령어 실행
+	cmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-i", "-n", "-p", "--", 
+		"/usr/sbin/netplan", "try", "--timeout=120")
 	
 	done := make(chan error, 1)
 	go func() {
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			m.logger.WithField("output", string(output)).Error("netplan try 실패")
+			m.logger.WithFields(logrus.Fields{
+				"output": string(output),
+				"error": err.Error(),
+			}).Error("[Netplan] netplan try 실패")
 		} else {
-			m.logger.WithField("output", string(output)).Info("netplan try 성공")
+			m.logger.WithField("output", string(output)).Info("[Netplan] netplan try 성공")
 		}
 		done <- err
 	}()
@@ -93,12 +108,17 @@ func (m *NetplanManager) applyNetplan() error {
 		}
 		
 		// try가 성공하면 실제 적용
-		m.logger.Info("netplan apply 실행 중...")
-		applyCmd := exec.Command("/usr/sbin/netplan", "apply")
+		m.logger.Info("[Netplan] 설정 적용 시작 - netplan apply 실행")
+		applyCmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-i", "-n", "-p", "--",
+			"/usr/sbin/netplan", "apply")
 		if output, err := applyCmd.CombinedOutput(); err != nil {
-			m.logger.WithField("output", string(output)).Error("netplan apply 실패")
+			m.logger.WithFields(logrus.Fields{
+				"output": string(output),
+				"error": err.Error(),
+			}).Error("[Netplan] netplan apply 실패")
 			return fmt.Errorf("netplan apply 실패: %w", err)
 		}
+		m.logger.Info("[Netplan] netplan apply 성공 - 네트워크 설정 적용 완료")
 		
 		return nil
 	case <-time.After(timeout):

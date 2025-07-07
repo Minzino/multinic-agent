@@ -71,8 +71,8 @@ spec:
           mountPath: /etc/sysconfig/network
         - name: multinic-backups
           mountPath: /var/lib/multinic
-        - name: usr-sbin
-          mountPath: /usr/sbin
+        - name: host-root
+          mountPath: /host
           readOnly: true
       volumes:
       - name: netplan
@@ -87,9 +87,9 @@ spec:
         hostPath:
           path: /var/lib/multinic
           type: DirectoryOrCreate
-      - name: usr-sbin
+      - name: host-root
         hostPath:
-          path: /usr/sbin
+          path: /
           type: Directory
       {{- with .Values.nodeSelector }}
       nodeSelector:
