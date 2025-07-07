@@ -1,0 +1,287 @@
+#!/bin/bash
+
+set -e
+
+# 색상 정의
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${GREEN}🚀 MultiNIC Agent v2 완전 자동 배포 스크립트${NC}"
+
+# 변수 설정
+IMAGE_NAME=${IMAGE_NAME:-"multinic-agent"}
+IMAGE_TAG=${IMAGE_TAG:-"latest"}
+NAMESPACE=${NAMESPACE:-"default"}
+RELEASE_NAME=${RELEASE_NAME:-"multinic-agent"}
+
+# 워커 노드 목록 (환경에 맞게 수정)
+WORKER_NODES=(viola2-biz-worker01 viola2-biz-worker02 viola2-biz-worker03)
+
+echo -e "이미지: ${BLUE}${IMAGE_NAME}:${IMAGE_TAG}${NC}"
+echo -e "네임스페이스: ${BLUE}${NAMESPACE}${NC}"
+echo -e "릴리즈명: ${BLUE}${RELEASE_NAME}${NC}"
+echo -e "워커 노드: ${BLUE}${WORKER_NODES[*]}${NC}"
+
+# 1. 기존 배포 정리
+echo -e "\n${BLUE}🧹 1단계: 기존 배포 정리${NC}"
+if helm list -n $NAMESPACE | grep -q $RELEASE_NAME; then
+    echo -e "${YELLOW}기존 릴리즈 삭제 중...${NC}"
+    helm uninstall $RELEASE_NAME -n $NAMESPACE
+    echo -e "${GREEN}✓ 기존 릴리즈 삭제 완료${NC}"
+else
+    echo -e "${GREEN}✓ 기존 릴리즈 없음${NC}"
+fi
+
+# 2. BuildKit 설정 확인 및 설치
+echo -e "\n${BLUE}🔧 2단계: BuildKit 설정 확인${NC}"
+if ! command -v buildkitd &> /dev/null; then
+    echo -e "${YELLOW}BuildKit이 설치되어 있지 않습니다. 설치를 시작합니다...${NC}"
+    
+    # BuildKit 설치
+    BUILDKIT_VERSION="v0.12.5"
+    ARCH=$(uname -m)
+    case $ARCH in
+        x86_64) ARCH="amd64" ;;
+        aarch64) ARCH="arm64" ;;
+        armv7l) ARCH="armv7" ;;
+        *) echo -e "${RED}지원하지 않는 아키텍처: $ARCH${NC}"; exit 1 ;;
+    esac
+
+    DOWNLOAD_URL="https://github.com/moby/buildkit/releases/download/${BUILDKIT_VERSION}/buildkit-${BUILDKIT_VERSION}.linux-${ARCH}.tar.gz"
+    
+    TMP_DIR=$(mktemp -d)
+    cd $TMP_DIR
+    
+    echo -e "${YELLOW}BuildKit 다운로드 중...${NC}"
+    curl -L -o buildkit.tar.gz "$DOWNLOAD_URL"
+    tar -xzf buildkit.tar.gz
+    sudo cp bin/* /usr/local/bin/
+    
+    cd - > /dev/null
+    rm -rf $TMP_DIR
+    
+    echo -e "${GREEN}✓ BuildKit 설치 완료${NC}"
+else
+    echo -e "${GREEN}✓ BuildKit이 이미 설치되어 있습니다${NC}"
+fi
+
+# 3. containerd 확인 및 시작
+echo -e "\n${BLUE}⚙️ 3단계: containerd 확인${NC}"
+if ! systemctl is-active --quiet containerd; then
+    echo -e "${YELLOW}containerd를 시작합니다...${NC}"
+    sudo systemctl start containerd
+    sleep 2
+fi
+
+if systemctl is-active --quiet containerd; then
+    echo -e "${GREEN}✓ containerd 실행 중${NC}"
+else
+    echo -e "${RED}✗ containerd 시작 실패${NC}"
+    exit 1
+fi
+
+# 4. buildkitd 확인 및 시작
+echo -e "\n${BLUE}🛠️ 4단계: buildkitd 확인 및 시작${NC}"
+if ! pgrep -f buildkitd > /dev/null; then
+    echo -e "${YELLOW}buildkitd를 시작합니다...${NC}"
+    
+    # systemd 서비스 설정
+    cat > /tmp/buildkitd.service << 'EOF'
+[Unit]
+Description=BuildKit daemon
+After=containerd.service
+Requires=containerd.service
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/buildkitd --containerd-worker=true --containerd-worker-namespace=k8s.io
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo cp /tmp/buildkitd.service /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable buildkitd
+    sudo systemctl start buildkitd
+    
+    # 연결 대기
+    echo -e "${YELLOW}buildkitd 연결 대기 중...${NC}"
+    for i in {1..15}; do
+        if buildctl debug workers &>/dev/null; then
+            echo -e "${GREEN}✓ buildkitd 연결 성공${NC}"
+            break
+        elif [ $i -eq 15 ]; then
+            echo -e "${RED}✗ buildkitd 연결 실패${NC}"
+            exit 1
+        else
+            echo "연결 시도 $i/15..."
+            sleep 2
+        fi
+    done
+else
+    echo -e "${GREEN}✓ buildkitd가 이미 실행 중입니다${NC}"
+fi
+
+# 5. 필수 도구 확인
+echo -e "\n${BLUE}🔍 5단계: 필수 도구 확인${NC}"
+commands=("nerdctl" "helm" "kubectl")
+for cmd in "${commands[@]}"; do
+    if ! command -v $cmd &> /dev/null; then
+        echo -e "${RED}✗ $cmd가 설치되어 있지 않습니다${NC}"
+        exit 1
+    fi
+done
+echo -e "${GREEN}✓ 필수 도구 확인 완료${NC}"
+
+# 6. 이미지 빌드
+echo -e "\n${BLUE}📦 6단계: 이미지 빌드${NC}"
+cd "$(dirname "$0")/.."
+
+echo -e "${YELLOW}nerdctl로 이미지 빌드 중...${NC}"
+nerdctl --namespace=k8s.io build --no-cache -t ${IMAGE_NAME}:${IMAGE_TAG} .
+
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓ 이미지 빌드 완료${NC}"
+else
+    echo -e "${RED}✗ 이미지 빌드 실패${NC}"
+    exit 1
+fi
+
+# 7. 이미지를 tar로 저장
+echo -e "\n${BLUE}💾 7단계: 이미지 저장${NC}"
+echo -e "${YELLOW}이미지를 tar 파일로 저장 중...${NC}"
+nerdctl --namespace=k8s.io save ${IMAGE_NAME}:${IMAGE_TAG} -o ${IMAGE_NAME}-${IMAGE_TAG}.tar
+
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓ 이미지 저장 완료${NC}"
+else
+    echo -e "${RED}✗ 이미지 저장 실패${NC}"
+    exit 1
+fi
+
+# 8. 모든 워커 노드에 이미지 배포
+echo -e "\n${BLUE}🚚 8단계: 워커 노드에 이미지 배포${NC}"
+for node in "${WORKER_NODES[@]}"; do
+    echo -e "${YELLOW}📦 $node 노드에 이미지 전송 중...${NC}"
+    
+    if scp ${IMAGE_NAME}-${IMAGE_TAG}.tar $node:/tmp/ 2>/dev/null; then
+        echo -e "${YELLOW}🔧 $node 노드에 이미지 로드 중...${NC}"
+        if ssh $node "sudo nerdctl --namespace=k8s.io load -i /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar && rm /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar" 2>/dev/null; then
+            echo -e "${GREEN}✓ $node 노드 완료${NC}"
+        else
+            echo -e "${YELLOW}⚠️  $node 노드 이미지 로드 실패 (계속 진행)${NC}"
+        fi
+    else
+        echo -e "${YELLOW}⚠️  $node 노드 접근 실패 (계속 진행)${NC}"
+    fi
+done
+
+# 로컬 tar 파일 정리
+echo -e "${BLUE}🗑️ 로컬 tar 파일 정리...${NC}"
+rm -f ${IMAGE_NAME}-${IMAGE_TAG}.tar
+echo -e "${GREEN}✓ 모든 노드에 이미지 배포 완료${NC}"
+
+# 9. Helm 차트 검증
+echo -e "\n${BLUE}📋 9단계: Helm 차트 검증${NC}"
+if helm lint ./deployments/helm; then
+    echo -e "${GREEN}✓ Helm 차트 검증 완료${NC}"
+else
+    echo -e "${RED}✗ Helm 차트 검증 실패${NC}"
+    exit 1
+fi
+
+# 10. 네임스페이스 생성
+echo -e "\n${BLUE}📁 10단계: 네임스페이스 생성${NC}"
+if kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -; then
+    echo -e "${GREEN}✓ 네임스페이스 생성/확인 완료${NC}"
+else
+    echo -e "${RED}✗ 네임스페이스 생성 실패${NC}"
+    exit 1
+fi
+
+# 11. MultiNIC Agent 배포
+echo -e "\n${BLUE}🚀 11단계: MultiNIC Agent 배포${NC}"
+echo -e "${YELLOW}새로운 릴리즈를 설치합니다...${NC}"
+if helm install $RELEASE_NAME ./deployments/helm \
+    --namespace $NAMESPACE \
+    --set image.repository=$IMAGE_NAME \
+    --set image.tag=$IMAGE_TAG \
+    --set image.pullPolicy=Never \
+    --wait --timeout=5m; then
+    echo -e "${GREEN}✓ MultiNIC Agent 배포 완료${NC}"
+else
+    echo -e "${RED}✗ MultiNIC Agent 배포 실패${NC}"
+    exit 1
+fi
+
+# 12. DaemonSet Pod 상태 확인
+echo -e "\n${BLUE}🔍 12단계: DaemonSet Pod 상태 확인${NC}"
+echo -e "${YELLOW}DaemonSet Pod들이 Ready 상태가 될 때까지 대기중...${NC}"
+if kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=multinic-agent -n $NAMESPACE --timeout=300s; then
+    echo -e "${GREEN}✓ 모든 Agent Pod가 성공적으로 실행중입니다${NC}"
+else
+    echo -e "${YELLOW}⚠️  일부 Pod의 Ready 상태 확인 타임아웃. 수동으로 확인해주세요.${NC}"
+fi
+
+# 13. 전체 상태 확인
+echo -e "\n${BLUE}📊 13단계: 전체 시스템 상태 확인${NC}"
+echo "=================================================="
+echo "📋 MultiNIC Agent DaemonSet 상태:"
+kubectl get daemonset -n $NAMESPACE -l app.kubernetes.io/name=multinic-agent
+
+echo ""
+echo "📋 MultiNIC Agent Pod 상태 (모든 노드):"
+kubectl get pods -n $NAMESPACE -l app.kubernetes.io/name=multinic-agent -o wide
+
+echo ""
+echo "📋 노드별 Pod 분포:"
+kubectl get pods -n $NAMESPACE -l app.kubernetes.io/name=multinic-agent -o jsonpath='{range .items[*]}{.spec.nodeName}{"\t"}{.metadata.name}{"\t"}{.status.phase}{"\n"}{end}' | column -t
+
+echo ""
+echo "📋 서비스 및 기타 리소스:"
+kubectl get svc,secret,serviceaccount,clusterrole,clusterrolebinding -n $NAMESPACE -l app.kubernetes.io/name=multinic-agent
+echo "=================================================="
+
+# 14. 헬스체크
+echo -e "\n${BLUE}🩺 14단계: 헬스체크${NC}"
+POD=$(kubectl get pods -n $NAMESPACE -l app.kubernetes.io/name=multinic-agent -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+if [ ! -z "$POD" ]; then
+    echo -e "${YELLOW}첫 번째 Pod ($POD) 로그 확인 (최근 10줄):${NC}"
+    kubectl logs $POD -n $NAMESPACE --tail=10
+    
+    echo ""
+    echo -e "${YELLOW}헬스체크 엔드포인트 테스트:${NC}"
+    echo -e "${BLUE}다음 명령어로 헬스체크를 확인할 수 있습니다:${NC}"
+    echo "kubectl port-forward $POD 8080:8080 -n $NAMESPACE"
+    echo "curl http://localhost:8080/"
+else
+    echo -e "${YELLOW}실행 중인 Pod가 없습니다.${NC}"
+fi
+
+echo -e "\n${GREEN}🎉 MultiNIC Agent v2 배포가 완료되었습니다!${NC}"
+
+echo -e "\n${YELLOW}📖 사용법:${NC}"
+echo -e "  • Agent 로그 확인: ${BLUE}kubectl logs -f daemonset/$RELEASE_NAME -n $NAMESPACE${NC}"
+echo -e "  • Pod 상태 확인: ${BLUE}kubectl get pods -n $NAMESPACE -l app.kubernetes.io/name=multinic-agent${NC}"
+echo -e "  • 특정 노드 Pod 로그: ${BLUE}kubectl logs <pod-name> -n $NAMESPACE${NC}"
+echo -e "  • 헬스체크: ${BLUE}kubectl port-forward <pod-name> 8080:8080 -n $NAMESPACE${NC}"
+
+echo -e "\n${BLUE}🔧 다음 단계:${NC}"
+echo -e "  1. 데이터베이스에 테스트 데이터 추가"
+echo -e "  2. 네트워크 인터페이스 생성 모니터링"
+echo -e "  3. Agent 로그에서 처리 상황 확인"
+
+echo -e "\n${BLUE}🗑️  삭제 방법:${NC}"
+echo -e "  ${YELLOW}helm uninstall $RELEASE_NAME -n $NAMESPACE${NC}"
+
+echo -e "\n${YELLOW}⚠️  참고사항:${NC}"
+echo -e "  • Agent는 DaemonSet으로 모든 노드에서 실행됩니다"
+echo -e "  • buildkitd는 systemd 서비스로 자동 시작됩니다"
+echo -e "  • 네트워크 설정 변경을 위해 privileged 권한이 필요합니다"
+echo -e "  • 실패한 설정은 자동으로 롤백됩니다"
