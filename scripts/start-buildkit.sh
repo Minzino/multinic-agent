@@ -47,12 +47,12 @@ fi
 # 4. buildkitd 수동 시작
 echo -e "\n${YELLOW}4. buildkitd 데몬 시작${NC}"
 
-# k8s.io namespace로 buildkitd 시작
+# k8s.io namespace로 buildkitd 시작 (백그라운드 및 출력 리다이렉션)
 echo -e "${BLUE}buildkitd를 k8s.io namespace로 시작합니다...${NC}"
-sudo buildkitd --containerd-worker=true --containerd-worker-namespace=k8s.io &
+sudo nohup buildkitd --containerd-worker=true --containerd-worker-namespace=k8s.io >/dev/null 2>&1 &
 
 # 프로세스 시작 대기
-sleep 3
+sleep 5
 
 # 5. 연결 테스트
 echo -e "\n${YELLOW}5. buildkitd 연결 테스트${NC}"
@@ -84,9 +84,12 @@ echo -e "• nerdctl 테스트: ${YELLOW}nerdctl --namespace=k8s.io build --help
 echo -e "\n${BLUE}🚀 이제 배포 스크립트를 실행할 수 있습니다:${NC}"
 echo -e "${YELLOW}./nerdctl-deploy.sh${NC}"
 
-echo -e "\n${YELLOW}⚠️  주의: buildkitd는 백그라운드에서 실행됩니다${NC}"
-echo -e "시스템 재부팅 시 다시 시작해야 합니다"
-echo -e "자동 시작을 원한다면: ${YELLOW}sudo systemctl enable buildkitd${NC}"
+echo -e "\n${YELLOW}⚠️  주의사항:${NC}"
+echo -e "• buildkitd는 백그라운드에서 실행됩니다"
+echo -e "• 시스템 재부팅 시 다시 시작해야 합니다"
+echo -e "• 프로세스 종료: ${YELLOW}sudo pkill buildkitd${NC}"
 
-echo -e "\n${BLUE}🔧 systemd 서비스 설정 (권장):${NC}"
-echo -e "${YELLOW}./setup-buildkit.sh 스크립트를 실행하면 자동 시작이 설정됩니다${NC}"
+echo -e "\n${BLUE}🔧 영구 설정 (권장):${NC}"
+echo -e "${YELLOW}./setup-buildkit.sh${NC} 스크립트를 실행하면 systemd 서비스로 자동 시작이 설정됩니다"
+
+echo -e "\n${GREEN}✅ 이제 nerdctl build가 정상 동작합니다!${NC}"
