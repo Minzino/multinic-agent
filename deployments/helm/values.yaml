@@ -1,0 +1,52 @@
+# 기본 값
+replicaCount: 1
+
+image:
+  repository: multinic-agent
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# 데이터베이스 설정
+database:
+  host: "192.168.34.79"
+  port: "30305"
+  user: "root"
+  password: "cloud1234"
+  name: "multinic"
+
+# 에이전트 설정
+agent:
+  # 폴링 간격 (기본: 30초)
+  pollInterval: "30s"
+  # 로그 레벨
+  logLevel: "info"
+
+# 리소스 제한
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# 노드 셀렉터 - K8s 클러스터에 조인된 노드만
+nodeSelector: {}
+  # kubernetes.io/hostname: node1
+
+tolerations: []
+
+affinity: {}
+
+# 서비스 어카운트
+serviceAccount:
+  create: true
+  name: ""
+
+# 보안 컨텍스트
+securityContext:
+  privileged: true  # 네트워크 설정을 위해 필요
+  capabilities:
+    add:
+      - NET_ADMIN
+      - SYS_ADMIN

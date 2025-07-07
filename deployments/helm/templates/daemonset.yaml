@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "multinic-agent.fullname" . }}
+  labels:
+    {{- include "multinic-agent.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "multinic-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "multinic-agent.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "multinic-agent.serviceAccountName" . }}
+      {{- end }}
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - name: {{ .Chart.Name }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+        - name: DB_HOST
+          value: "{{ .Values.database.host }}"
+        - name: DB_PORT
+          value: "{{ .Values.database.port }}"
+        - name: DB_USER
+          value: "{{ .Values.database.user }}"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "multinic-agent.fullname" . }}-db
+              key: password
+        - name: DB_NAME
+          value: "{{ .Values.database.name }}"
+        - name: POLL_INTERVAL
+          value: "{{ .Values.agent.pollInterval }}"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: HEALTH_PORT
+          value: "8080"
+        ports:
+        - name: health
+          containerPort: 8080
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        volumeMounts:
+        - name: netplan
+          mountPath: /etc/netplan
+        - name: sysconfig
+          mountPath: /etc/sysconfig/network
+        - name: multinic-backups
+          mountPath: /var/lib/multinic
+      volumes:
+      - name: netplan
+        hostPath:
+          path: /etc/netplan
+          type: DirectoryOrCreate
+      - name: sysconfig
+        hostPath:
+          path: /etc/sysconfig/network
+          type: DirectoryOrCreate
+      - name: multinic-backups
+        hostPath:
+          path: /var/lib/multinic
+          type: DirectoryOrCreate
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,53 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Build artifacts
+/bin/
+/dist/
+coverage.out
+coverage.html
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Docker
+.dockerignore
+
+# Kubernetes
+*.kubeconfig
+
+# Secrets (never commit)
+*.secret
+*password.txt
+*private.key
+.env
+.env.local
+
+# Allow Kubernetes secret templates
+!deployments/helm/templates/secret.yaml
+
+# Logs
+*.log
+
+# Test artifacts
+*.prof
