@@ -1,0 +1,47 @@
+# 프로덕션 환경 설정
+image:
+  repository: multinic-agent
+  tag: "v1.0.0"
+  pullPolicy: IfNotPresent
+
+# 프로덕션 데이터베이스 설정
+database:
+  host: "192.168.34.79"
+  port: "30305"
+  user: "root"
+  password: "cloud1234"
+  name: "multinic"
+
+# 프로덕션 환경용 에이전트 설정
+agent:
+  pollInterval: "30s"
+  logLevel: "info"
+
+# 프로덕션 리소스 설정
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# 프로덕션 노드에만 배포
+nodeSelector:
+  kubernetes.io/os: linux
+
+# 프로덕션 톨러레이션 (마스터 노드 제외)
+tolerations:
+- key: "node-role.kubernetes.io/control-plane"
+  operator: "Equal"
+  effect: "NoSchedule"
+
+# 보안 강화
+securityContext:
+  privileged: true
+  capabilities:
+    add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    drop:
+      - ALL

@@ -1,0 +1,38 @@
+# 개발 환경 설정
+image:
+  repository: multinic-agent
+  tag: "dev"
+  pullPolicy: Always
+
+# 개발용 데이터베이스 설정
+database:
+  host: "192.168.34.79"
+  port: "30305"
+  user: "root"
+  password: "cloud1234"
+  name: "multinic_dev"
+
+# 개발 환경용 에이전트 설정
+agent:
+  pollInterval: "10s"  # 개발시 빠른 테스트를 위해 짧게 설정
+  logLevel: "debug"
+
+# 리소스 제한 (개발환경이므로 낮게 설정)
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# 개발 노드에만 배포
+nodeSelector:
+  environment: development
+
+# 개발환경 톨러레이션
+tolerations:
+- key: "dev"
+  operator: "Equal"
+  value: "true"
+  effect: "NoSchedule"
