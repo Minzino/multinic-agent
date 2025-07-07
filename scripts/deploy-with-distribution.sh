@@ -20,37 +20,61 @@ RELEASE_NAME=${RELEASE_NAME:-"multinic-agent"}
 # 워커 노드 목록 (환경에 맞게 수정)
 WORKER_NODES=(viola2-biz-worker01 viola2-biz-worker02 viola2-biz-worker03)
 
-echo "이미지: ${BLUE}${IMAGE_NAME}:${IMAGE_TAG}${NC}"
-echo "네임스페이스: ${BLUE}${NAMESPACE}${NC}"
-echo "릴리즈명: ${BLUE}${RELEASE_NAME}${NC}"
+echo -e "이미지: ${BLUE}${IMAGE_NAME}:${IMAGE_TAG}${NC}"
+echo -e "네임스페이스: ${BLUE}${NAMESPACE}${NC}"
+echo -e "릴리즈명: ${BLUE}${RELEASE_NAME}${NC}"
 
-# 1. nerdctl을 사용한 이미지 빌드 (기존 방식과 동일)
-echo -e "\n${BLUE}📦 1단계: nerdctl로 이미지 빌드${NC}"
+# 1. 이미지 빌드 단계 건너뛰기 (다른 환경에서 빌드된 이미지 사용)
+echo -e "\n${BLUE}📦 1단계: 이미지 준비 확인${NC}"
 cd "$(dirname "$0")/.."
 
-echo "nerdctl을 사용하여 이미지를 빌드합니다..."
-nerdctl --namespace=k8s.io build --no-cache -t ${IMAGE_NAME}:${IMAGE_TAG} .
+echo -e "${YELLOW}buildkit 없이 배포하기 위해 다른 환경에서 빌드된 이미지를 사용합니다.${NC}"
+echo -e "${BLUE}이미지 파일이 있는지 확인합니다...${NC}"
+
+if [ -f "${IMAGE_NAME}-${IMAGE_TAG}.tar" ]; then
+    echo -e "${GREEN}✅ 기존 이미지 파일 발견: ${IMAGE_NAME}-${IMAGE_TAG}.tar${NC}"
+    echo -e "${GREEN}기존 이미지 파일을 사용합니다.${NC}"
+elif [ -f "${IMAGE_NAME}.tar.gz" ]; then
+    echo -e "${GREEN}✅ 압축된 이미지 파일 발견: ${IMAGE_NAME}.tar.gz${NC}"
+    echo -e "${YELLOW}압축 파일을 해제합니다...${NC}"
+    gunzip ${IMAGE_NAME}.tar.gz
+    mv ${IMAGE_NAME}.tar ${IMAGE_NAME}-${IMAGE_TAG}.tar
+else
+    echo -e "${RED}❌ 이미지 파일을 찾을 수 없습니다${NC}"
+    echo -e "\n${YELLOW}다른 환경에서 이미지를 빌드해서 가져와주세요:${NC}"
+    echo "1. Docker가 있는 환경에서:"
+    echo "   docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+    echo "   docker save ${IMAGE_NAME}:${IMAGE_TAG} | gzip > ${IMAGE_NAME}.tar.gz"
+    echo ""
+    echo "2. 이 서버로 파일 복사:"
+    echo "   scp ${IMAGE_NAME}.tar.gz user@$(hostname):$(pwd)/"
+    echo ""
+    echo "3. 다시 스크립트 실행"
+    exit 1
+fi
+
+# 로컬에 이미지 로드
+echo -e "${YELLOW}로컬 containerd에 이미지 로드 중...${NC}"
+nerdctl --namespace=k8s.io load -i ${IMAGE_NAME}-${IMAGE_TAG}.tar
 
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✅ nerdctl로 이미지 빌드 완료${NC}"
+    echo -e "${GREEN}✅ 이미지 로드 완료${NC}"
 else
-    echo -e "${RED}❌ nerdctl 이미지 빌드 실패${NC}"
-    echo -e "\n${YELLOW}buildkit 문제일 수 있습니다. 다음을 시도해보세요:${NC}"
-    echo "1. sudo buildkitd --containerd-worker=true --containerd-worker-namespace=k8s.io &"
-    echo "2. 또는 다른 환경에서 이미지를 빌드해서 가져오기"
+    echo -e "${RED}❌ 이미지 로드 실패${NC}"
     exit 1
 fi
 
 # 1.5. 이미지를 모든 워커 노드에 배포
 echo -e "\n${BLUE}🚚 1.5단계: 이미지 배포${NC}"
-echo "이미지를 모든 워커 노드에 배포..."
-nerdctl --namespace=k8s.io save ${IMAGE_NAME}:${IMAGE_TAG} -o ${IMAGE_NAME}-${IMAGE_TAG}.tar
+echo -e "${BLUE}이미지를 모든 워커 노드에 배포...${NC}"
+
+# 이미지 파일이 이미 존재하므로 바로 배포
 
 for node in "${WORKER_NODES[@]}"; do
-    echo "📦 $node 노드에 이미지 전송 중..."
+    echo -e "${YELLOW}📦 $node 노드에 이미지 전송 중...${NC}"
     scp ${IMAGE_NAME}-${IMAGE_TAG}.tar $node:/tmp/
     
-    echo "🔧 $node 노드에 이미지 로드 중..."
+    echo -e "${YELLOW}🔧 $node 노드에 이미지 로드 중...${NC}"
     ssh $node "sudo nerdctl --namespace=k8s.io load -i /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar && rm /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar"
     
     if [ $? -eq 0 ]; then
@@ -60,7 +84,7 @@ for node in "${WORKER_NODES[@]}"; do
     fi
 done
 
-echo "🗑️ 로컬 tar 파일 정리..."
+echo -e "${BLUE}🗑️ 로컬 tar 파일 정리...${NC}"
 rm -f ${IMAGE_NAME}-${IMAGE_TAG}.tar
 echo -e "${GREEN}✅ 모든 노드에 이미지 배포 완료${NC}"
 
