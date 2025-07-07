@@ -187,7 +187,6 @@ func processConfigurations(dbClient *db.Client, networkManager network.NetworkMa
 		logger.WithFields(logrus.Fields{
 			"interface_id": iface.ID,
 			"mac_address":  iface.MacAddress,
-			"ip_address":   iface.IPAddress,
 		}).Info("인터페이스 설정 처리 시작")
 
 		// 인터페이스 이름 생성 (multinic0~9)
