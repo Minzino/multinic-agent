@@ -24,14 +24,20 @@ echo "이미지: ${BLUE}${IMAGE_NAME}:${IMAGE_TAG}${NC}"
 echo "네임스페이스: ${BLUE}${NAMESPACE}${NC}"
 echo "릴리즈명: ${BLUE}${RELEASE_NAME}${NC}"
 
-# 1. Docker 이미지 빌드
-echo -e "\n${BLUE}📦 1단계: Docker 이미지 빌드${NC}"
+# 1. nerdctl을 사용한 이미지 빌드 (기존 방식과 동일)
+echo -e "\n${BLUE}📦 1단계: nerdctl로 이미지 빌드${NC}"
 cd "$(dirname "$0")/.."
+
+echo "nerdctl을 사용하여 이미지를 빌드합니다..."
 nerdctl --namespace=k8s.io build --no-cache -t ${IMAGE_NAME}:${IMAGE_TAG} .
+
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✅ Docker 이미지 빌드 완료${NC}"
+    echo -e "${GREEN}✅ nerdctl로 이미지 빌드 완료${NC}"
 else
-    echo -e "${RED}❌ Docker 이미지 빌드 실패${NC}"
+    echo -e "${RED}❌ nerdctl 이미지 빌드 실패${NC}"
+    echo -e "\n${YELLOW}buildkit 문제일 수 있습니다. 다음을 시도해보세요:${NC}"
+    echo "1. sudo buildkitd --containerd-worker=true --containerd-worker-namespace=k8s.io &"
+    echo "2. 또는 다른 환경에서 이미지를 빌드해서 가져오기"
     exit 1
 fi
 
