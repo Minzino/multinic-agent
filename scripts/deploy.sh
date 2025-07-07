@@ -16,6 +16,7 @@ IMAGE_NAME=${IMAGE_NAME:-"multinic-agent"}
 IMAGE_TAG=${IMAGE_TAG:-"latest"}
 NAMESPACE=${NAMESPACE:-"default"}
 RELEASE_NAME=${RELEASE_NAME:-"multinic-agent"}
+SSH_PASSWORD=${SSH_PASSWORD:-"cloud1234"}
 
 # 워커 노드 목록 (환경에 맞게 수정)
 WORKER_NODES=(viola2-biz-worker01 viola2-biz-worker02 viola2-biz-worker03)
@@ -137,6 +138,31 @@ for cmd in "${commands[@]}"; do
         exit 1
     fi
 done
+
+# sshpass 설치 확인
+if ! command -v sshpass &> /dev/null; then
+    echo -e "${YELLOW}sshpass가 설치되어 있지 않습니다. 설치를 시도합니다...${NC}"
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y sshpass
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y sshpass
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y sshpass
+    elif command -v zypper &> /dev/null; then
+        sudo zypper install -y sshpass
+    else
+        echo -e "${RED}✗ sshpass 설치에 실패했습니다. 수동으로 설치해주세요${NC}"
+        exit 1
+    fi
+    
+    if command -v sshpass &> /dev/null; then
+        echo -e "${GREEN}✓ sshpass 설치 완료${NC}"
+    else
+        echo -e "${RED}✗ sshpass 설치 실패${NC}"
+        exit 1
+    fi
+fi
+
 echo -e "${GREEN}✓ 필수 도구 확인 완료${NC}"
 
 # 6. 이미지 빌드
@@ -170,9 +196,9 @@ echo -e "\n${BLUE}🚚 8단계: 워커 노드에 이미지 배포${NC}"
 for node in "${WORKER_NODES[@]}"; do
     echo -e "${YELLOW}📦 $node 노드에 이미지 전송 중...${NC}"
     
-    if scp ${IMAGE_NAME}-${IMAGE_TAG}.tar $node:/tmp/ 2>/dev/null; then
+    if sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no ${IMAGE_NAME}-${IMAGE_TAG}.tar $node:/tmp/ 2>/dev/null; then
         echo -e "${YELLOW}🔧 $node 노드에 이미지 로드 중...${NC}"
-        if ssh $node "sudo nerdctl --namespace=k8s.io load -i /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar && rm /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar" 2>/dev/null; then
+        if sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no $node "sudo nerdctl --namespace=k8s.io load -i /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar && rm /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar" 2>/dev/null; then
             echo -e "${GREEN}✓ $node 노드 완료${NC}"
         else
             echo -e "${YELLOW}⚠️  $node 노드 이미지 로드 실패 (계속 진행)${NC}"
