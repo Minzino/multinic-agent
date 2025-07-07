@@ -73,7 +73,7 @@ func (m *NetplanManager) ApplyConfiguration(configData []byte, interfaceName str
 func (m *NetplanManager) applyNetplan() error {
 	// 먼저 netplan try로 안전하게 테스트 (120초 타임아웃)
 	m.logger.Info("netplan try로 설정 테스트 중...")
-	cmd := exec.Command("netplan", "try", "--timeout=120")
+	cmd := exec.Command("/usr/sbin/netplan", "try", "--timeout=120")
 	
 	done := make(chan error, 1)
 	go func() {
@@ -94,7 +94,7 @@ func (m *NetplanManager) applyNetplan() error {
 		
 		// try가 성공하면 실제 적용
 		m.logger.Info("netplan apply 실행 중...")
-		applyCmd := exec.Command("netplan", "apply")
+		applyCmd := exec.Command("/usr/sbin/netplan", "apply")
 		if output, err := applyCmd.CombinedOutput(); err != nil {
 			m.logger.WithField("output", string(output)).Error("netplan apply 실패")
 			return fmt.Errorf("netplan apply 실패: %w", err)
