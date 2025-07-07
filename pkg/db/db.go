@@ -24,16 +24,9 @@ type Client struct {
 
 type MultiInterface struct {
 	ID               int
-	AttachedNodeName string
 	MacAddress       string
+	AttachedNodeName string
 	NetplanSuccess   int
-	IPAddress        string
-	SubnetMask       string
-	Gateway          string
-	DNS              string
-	VLAN             int
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
 }
 
 func NewClient(cfg Config, logger *logrus.Logger) (*Client, error) {
@@ -61,10 +54,9 @@ func NewClient(cfg Config, logger *logrus.Logger) (*Client, error) {
 
 func (c *Client) GetPendingInterfaces(nodeName string) ([]MultiInterface, error) {
 	query := `
-		SELECT id, attached_node_name, macaddress, netplan_success, 
-			   ip_address, subnet_mask, gateway, dns, vlan, created_at, updated_at
+		SELECT id, macaddress, attached_node_name, netplan_success
 		FROM multi_interface 
-		WHERE netplan_success = 0 AND attached_node_name = ?
+		WHERE netplan_success = 0 AND attached_node_name = ? AND deleted_at IS NULL
 		ORDER BY id
 		LIMIT 10
 	`
@@ -78,17 +70,10 @@ func (c *Client) GetPendingInterfaces(nodeName string) ([]MultiInterface, error)
 	var interfaces []MultiInterface
 	for rows.Next() {
 		var iface MultiInterface
-		var dns sql.NullString
 		
-		if err := rows.Scan(&iface.ID, &iface.AttachedNodeName, &iface.MacAddress, 
-			&iface.NetplanSuccess, &iface.IPAddress, &iface.SubnetMask, 
-			&iface.Gateway, &dns, &iface.VLAN, &iface.CreatedAt, &iface.UpdatedAt); err != nil {
+		if err := rows.Scan(&iface.ID, &iface.MacAddress, &iface.AttachedNodeName, &iface.NetplanSuccess); err != nil {
 			c.logger.WithError(err).Error("다중 인터페이스 스캔 실패")
 			continue
-		}
-		
-		if dns.Valid {
-			iface.DNS = dns.String
 		}
 		
 		interfaces = append(interfaces, iface)
@@ -105,7 +90,7 @@ func (c *Client) UpdateInterfaceStatus(interfaceID int, success bool) error {
 
 	query := `
 		UPDATE multi_interface 
-		SET netplan_success = ?, updated_at = NOW() 
+		SET netplan_success = ?, modified_at = NOW() 
 		WHERE id = ?
 	`
 	
