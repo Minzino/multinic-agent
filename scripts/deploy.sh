@@ -18,13 +18,13 @@ NAMESPACE=${NAMESPACE:-"default"}
 RELEASE_NAME=${RELEASE_NAME:-"multinic-agent"}
 SSH_PASSWORD=${SSH_PASSWORD:-"cloud1234"}
 
-# 워커 노드 목록 (환경에 맞게 수정)
-WORKER_NODES=(viola2-biz-worker01 viola2-biz-worker02 viola2-biz-worker03)
+# 모든 노드 목록을 동적으로 가져오기
+ALL_NODES=($(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'))
 
 echo -e "이미지: ${BLUE}${IMAGE_NAME}:${IMAGE_TAG}${NC}"
 echo -e "네임스페이스: ${BLUE}${NAMESPACE}${NC}"
 echo -e "릴리즈명: ${BLUE}${RELEASE_NAME}${NC}"
-echo -e "워커 노드: ${BLUE}${WORKER_NODES[*]}${NC}"
+echo -e "클러스터 노드: ${BLUE}${ALL_NODES[*]}${NC}"
 
 # 1. 기존 배포 정리
 echo -e "\n${BLUE}🧹 1단계: 기존 배포 정리${NC}"
@@ -191,9 +191,9 @@ else
     exit 1
 fi
 
-# 8. 모든 워커 노드에 이미지 배포
-echo -e "\n${BLUE}🚚 8단계: 워커 노드에 이미지 배포${NC}"
-for node in "${WORKER_NODES[@]}"; do
+# 8. 모든 노드에 이미지 배포
+echo -e "\n${BLUE}🚚 8단계: 모든 노드에 이미지 배포${NC}"
+for node in "${ALL_NODES[@]}"; do
     echo -e "${YELLOW}📦 $node 노드에 이미지 전송 중...${NC}"
     
     if sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no ${IMAGE_NAME}-${IMAGE_TAG}.tar $node:/tmp/ 2>/dev/null; then
