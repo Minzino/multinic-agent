@@ -405,3 +405,19 @@ type NetworkManager interface {
    - DaemonSet이 모든 노드에서 실행되도록 설계되어 있으므로, 이미지도 모든 노드에 배포되어야 함
    - OpenStack multi-interface 관리를 위해 컨트롤 플레인 노드에서도 실행 필요
    - 노드 추가/제거 시 자동으로 반영되어 유지보수성 향상
+
+### Toleration 설정 추가
+컨트롤 플레인 노드에도 DaemonSet이 배포되도록 toleration 설정 추가:
+
+```yaml
+tolerations:
+  # 컨트롤 플레인 노드에도 배포되도록 설정
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+```
+
+이 설정으로 `node-role.kubernetes.io/control-plane:NoSchedule` taint가 있는 마스터 노드에도 Pod가 스케줄링됩니다.
