@@ -1,20 +1,25 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"multinic-agent-v2/internal/domain/entities"
 	"multinic-agent-v2/internal/domain/interfaces"
+	"regexp"
+	"time"
 )
 
 // InterfaceNamingService는 네트워크 인터페이스 이름을 관리하는 도메인 서비스입니다
 type InterfaceNamingService struct {
-	fileSystem interfaces.FileSystem
+	fileSystem      interfaces.FileSystem
+	commandExecutor interfaces.CommandExecutor
 }
 
 // NewInterfaceNamingService는 새로운 InterfaceNamingService를 생성합니다
-func NewInterfaceNamingService(fs interfaces.FileSystem) *InterfaceNamingService {
+func NewInterfaceNamingService(fs interfaces.FileSystem, executor interfaces.CommandExecutor) *InterfaceNamingService {
 	return &InterfaceNamingService{
-		fileSystem: fs,
+		fileSystem:      fs,
+		commandExecutor: executor,
 	}
 }
 
@@ -38,7 +43,8 @@ func (s *InterfaceNamingService) isInterfaceInUse(name string) bool {
 	return s.fileSystem.Exists(fmt.Sprintf("/sys/class/net/%s", name))
 }
 
-// GetCurrentMultinicInterfaces는 현재 시스템에 생성된 모든 multinic 인터페이스를 반환합니다
+// GetCurrentMultinicInterfaces는 현재 시스템에 존재하는 모든 multinic 인터페이스를 반환합니다
+// ip a 명령어를 통해 실제 네트워크 인터페이스를 확인합니다
 func (s *InterfaceNamingService) GetCurrentMultinicInterfaces() []entities.InterfaceName {
 	var interfaces []entities.InterfaceName
 	
@@ -54,24 +60,23 @@ func (s *InterfaceNamingService) GetCurrentMultinicInterfaces() []entities.Inter
 	return interfaces
 }
 
-// GetMacAddressForInterface는 특정 인터페이스의 MAC 주소를 조회합니다
+// GetMacAddressForInterface는 특정 인터페이스의 MAC 주소를 ip 명령어로 조회합니다
 func (s *InterfaceNamingService) GetMacAddressForInterface(interfaceName string) (string, error) {
-	macPath := fmt.Sprintf("/sys/class/net/%s/address", interfaceName)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	
-	if !s.fileSystem.Exists(macPath) {
-		return "", fmt.Errorf("인터페이스 %s의 MAC 주소 파일이 존재하지 않습니다", interfaceName)
-	}
-	
-	macBytes, err := s.fileSystem.ReadFile(macPath)
+	// ip addr show 명령어로 특정 인터페이스 정보 조회
+	output, err := s.commandExecutor.ExecuteWithTimeout(ctx, 10*time.Second, "ip", "addr", "show", interfaceName)
 	if err != nil {
-		return "", fmt.Errorf("인터페이스 %s의 MAC 주소 읽기 실패: %w", interfaceName, err)
+		return "", fmt.Errorf("인터페이스 %s 정보 조회 실패: %w", interfaceName, err)
 	}
 	
-	// 줄바꿈 문자 제거
-	macAddress := string(macBytes)
-	if len(macAddress) > 0 && macAddress[len(macAddress)-1] == '\n' {
-		macAddress = macAddress[:len(macAddress)-1]
+	// MAC 주소 추출 (예: "link/ether fa:16:3e:00:be:63 brd ff:ff:ff:ff:ff:ff")
+	macRegex := regexp.MustCompile(`link/ether\s+([a-fA-F0-9:]{17})`)
+	matches := macRegex.FindStringSubmatch(string(output))
+	if len(matches) < 2 {
+		return "", fmt.Errorf("인터페이스 %s에서 MAC 주소를 찾을 수 없습니다", interfaceName)
 	}
 	
-	return macAddress, nil
+	return matches[1], nil
 }
