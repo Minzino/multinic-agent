@@ -12,7 +12,6 @@ type NetworkManagerFactory struct {
 	osDetector      interfaces.OSDetector
 	commandExecutor interfaces.CommandExecutor
 	fileSystem      interfaces.FileSystem
-	backupService   interfaces.BackupService
 	logger          *logrus.Logger
 }
 
@@ -21,14 +20,12 @@ func NewNetworkManagerFactory(
 	osDetector interfaces.OSDetector,
 	executor interfaces.CommandExecutor,
 	fs interfaces.FileSystem,
-	backup interfaces.BackupService,
 	logger *logrus.Logger,
 ) *NetworkManagerFactory {
 	return &NetworkManagerFactory{
 		osDetector:      osDetector,
 		commandExecutor: executor,
 		fileSystem:      fs,
-		backupService:   backup,
 		logger:          logger,
 	}
 }
@@ -47,7 +44,6 @@ func (f *NetworkManagerFactory) CreateNetworkConfigurer() (interfaces.NetworkCon
 		return NewNetplanAdapter(
 			f.commandExecutor,
 			f.fileSystem,
-			f.backupService,
 			f.logger,
 		), nil
 		
@@ -55,7 +51,6 @@ func (f *NetworkManagerFactory) CreateNetworkConfigurer() (interfaces.NetworkCon
 		return NewWickedAdapter(
 			f.commandExecutor,
 			f.fileSystem,
-			f.backupService,
 			f.logger,
 		), nil
 		

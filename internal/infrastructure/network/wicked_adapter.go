@@ -17,7 +17,6 @@ import (
 type WickedAdapter struct {
 	commandExecutor interfaces.CommandExecutor
 	fileSystem      interfaces.FileSystem
-	backupService   interfaces.BackupService
 	logger          *logrus.Logger
 	configDir       string
 }
@@ -26,13 +25,11 @@ type WickedAdapter struct {
 func NewWickedAdapter(
 	executor interfaces.CommandExecutor,
 	fs interfaces.FileSystem,
-	backup interfaces.BackupService,
 	logger *logrus.Logger,
 ) *WickedAdapter {
 	return &WickedAdapter{
 		commandExecutor: executor,
 		fileSystem:      fs,
-		backupService:   backup,
 		logger:          logger,
 		configDir:       "/etc/sysconfig/network",
 	}
@@ -43,10 +40,7 @@ func (a *WickedAdapter) Configure(ctx context.Context, iface entities.NetworkInt
 	// 설정 파일 경로 생성
 	configPath := filepath.Join(a.configDir, fmt.Sprintf("ifcfg-%s", name.String()))
 	
-	// 백업 생성 (기존 설정이 있는 경우)
-	if err := a.backupService.CreateBackup(ctx, name.String(), configPath); err != nil {
-		a.logger.WithError(err).Warn("백업 생성 실패, 계속 진행")
-	}
+	// 백업 로직 제거 - 기존 설정 파일이 있으면 덮어쓰기
 	
 	// Wicked 설정 생성
 	configContent := a.generateWickedConfig(iface, name.String())
@@ -106,17 +100,7 @@ func (a *WickedAdapter) Rollback(ctx context.Context, name entities.InterfaceNam
 		}
 	}
 	
-	// 백업이 있으면 복원
-	if a.backupService.HasBackup(ctx, name.String()) {
-		if err := a.backupService.RestoreLatestBackup(ctx, name.String()); err != nil {
-			a.logger.WithError(err).Warn("백업 복원 실패")
-		}
-		
-		// 복원된 설정으로 인터페이스 재활성화
-		if err := a.activateInterface(ctx, name.String()); err != nil {
-			a.logger.WithError(err).Error("백업 복원 후 인터페이스 활성화 실패")
-		}
-	}
+	// 백업 복원 로직 제거 - 단순히 설정 파일만 제거
 	
 	a.logger.WithField("interface", name.String()).Info("네트워크 설정 롤백 완료")
 	return nil
