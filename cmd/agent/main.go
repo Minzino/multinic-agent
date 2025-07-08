@@ -2,249 +2,178 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
-	"multinic-agent-v2/pkg/db"
-	"multinic-agent-v2/pkg/health"
-	"multinic-agent-v2/pkg/network"
-	"multinic-agent-v2/pkg/utils"
+	
+	"multinic-agent-v2/internal/application/usecases"
+	"multinic-agent-v2/internal/infrastructure/config"
+	"multinic-agent-v2/internal/infrastructure/container"
+	
 	"github.com/sirupsen/logrus"
 )
 
-type Config struct {
-	DB struct {
-		Host     string
-		Port     string
-		User     string
-		Password string
-		Database string
-	}
-	PollInterval time.Duration
-	HealthPort   string
-}
-
 func main() {
+	// 로거 초기화
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
 	
-	config := loadConfig()
-	
-	// 데이터베이스 설정 유효성 검사
-	if err := utils.ValidateDatabaseConfig(
-		config.DB.Host,
-		config.DB.Port,
-		config.DB.User,
-		config.DB.Password,
-		config.DB.Database,
-	); err != nil {
-		logger.WithError(err).Fatal("잘못된 데이터베이스 설정")
+	// 설정 로드
+	configLoader := config.NewEnvironmentConfigLoader()
+	cfg, err := configLoader.Load()
+	if err != nil {
+		logger.WithError(err).Fatal("설정 로드 실패")
 	}
 	
-	// 데이터베이스 연결 재시도
-	var dbClient *db.Client
-	err := utils.RetryWithBackoff(context.Background(), utils.DefaultRetryConfig, func() error {
-		var err error
-		dbClient, err = db.NewClient(db.Config{
-			Host:     config.DB.Host,
-			Port:     config.DB.Port,
-			User:     config.DB.User,
-			Password: config.DB.Password,
-			Database: config.DB.Database,
-		}, logger)
-		return err
-	})
+	// 의존성 컨테이너 초기화
+	appContainer, err := container.NewContainer(cfg, logger)
 	if err != nil {
-		logger.WithError(err).Fatal("데이터베이스 연결 실패")
+		logger.WithError(err).Fatal("컨테이너 초기화 실패")
 	}
 	defer func() {
-		if err := dbClient.Close(); err != nil {
-			logger.WithError(err).Error("데이터베이스 연결 종료 실패")
+		if err := appContainer.Close(); err != nil {
+			logger.WithError(err).Error("컨테이너 정리 실패")
 		}
 	}()
-
-	networkManager, err := network.NewNetworkManager(logger)
-	if err != nil {
-		logger.WithError(err).Fatal("네트워크 매니저 생성 실패")
-	}
 	
-	logger.WithField("network_manager", networkManager.GetType()).Info("네트워크 매니저 초기화")
+	// 애플리케이션 시작
+	app := NewApplication(appContainer, logger)
+	if err := app.Run(); err != nil {
+		logger.WithError(err).Fatal("애플리케이션 실행 실패")
+	}
+}
+
+// Application은 메인 애플리케이션 구조체입니다
+type Application struct {
+	container           *container.Container
+	logger              *logrus.Logger
+	configureUseCase    *usecases.ConfigureNetworkUseCase
+	healthServer        *http.Server
+}
+
+// NewApplication은 새로운 Application을 생성합니다
+func NewApplication(container *container.Container, logger *logrus.Logger) *Application {
+	return &Application{
+		container:        container,
+		logger:           logger,
+		configureUseCase: container.GetConfigureNetworkUseCase(),
+	}
+}
+
+// Run은 애플리케이션을 실행합니다
+func (a *Application) Run() error {
+	cfg := a.container.GetConfig()
 	
 	// 헬스체크 서버 시작
-	healthChecker := health.NewHealthChecker(logger)
-	healthServer := &http.Server{
-		Addr:    ":" + config.HealthPort,
-		Handler: healthChecker,
+	if err := a.startHealthServer(cfg.Health.Port); err != nil {
+		return err
 	}
 	
-	go func() {
-		logger.WithField("port", config.HealthPort).Info("헬스체크 서버 시작")
-		if err := healthServer.ListenAndServe(); err != http.ErrServerClosed {
-			logger.WithError(err).Error("헬스체크 서버 실패")
-		}
-	}()
-	
+	// 컨텍스트 및 시그널 핸들링 설정
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
+	
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	ticker := time.NewTicker(config.PollInterval)
+	
+	// 메인 루프 시작
+	ticker := time.NewTicker(cfg.Agent.PollInterval)
 	defer ticker.Stop()
-
-	logger.Info("MultiNIC 에이전트 시작")
-
+	
+	a.logger.Info("MultiNIC 에이전트 시작")
+	
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("에이전트 종료")
-			// 헬스체크 서버 정리
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer shutdownCancel()
-			healthServer.Shutdown(shutdownCtx)
-			return
+			a.logger.Info("에이전트 종료")
+			return a.shutdown()
+			
 		case <-sigChan:
-			logger.Info("종료 신호 수신")
+			a.logger.Info("종료 신호 수신")
 			cancel()
+			
 		case <-ticker.C:
-			if err := processConfigurations(dbClient, networkManager, healthChecker, logger); err != nil {
-				logger.WithError(err).Error("설정 처리 실패")
-				healthChecker.UpdateDBHealth(false, err)
+			if err := a.processNetworkConfigurations(ctx); err != nil {
+				a.logger.WithError(err).Error("네트워크 설정 처리 실패")
+				a.container.GetHealthService().UpdateDBHealth(false, err)
 			} else {
-				healthChecker.UpdateDBHealth(true, nil)
+				a.container.GetHealthService().UpdateDBHealth(true, nil)
 			}
 		}
 	}
 }
 
-func loadConfig() Config {
-	config := Config{
-		PollInterval: 30 * time.Second,
-		HealthPort:   "8080",
+// startHealthServer는 헬스체크 서버를 시작합니다
+func (a *Application) startHealthServer(port string) error {
+	healthService := a.container.GetHealthService()
+	
+	a.healthServer = &http.Server{
+		Addr:    ":" + port,
+		Handler: healthService,
 	}
-
-	config.DB.Host = getEnv("DB_HOST", "192.168.34.79")
-	config.DB.Port = getEnv("DB_PORT", "30305")
-	config.DB.User = getEnv("DB_USER", "root")
-	config.DB.Password = getEnv("DB_PASSWORD", "cloud1234")
-	config.DB.Database = getEnv("DB_NAME", "multinic")
-	config.HealthPort = getEnv("HEALTH_PORT", "8080")
-
-	if interval := os.Getenv("POLL_INTERVAL"); interval != "" {
-		if d, err := time.ParseDuration(interval); err == nil {
-			config.PollInterval = d
+	
+	go func() {
+		a.logger.WithField("port", port).Info("헬스체크 서버 시작")
+		if err := a.healthServer.ListenAndServe(); err != http.ErrServerClosed {
+			a.logger.WithError(err).Error("헬스체크 서버 실패")
 		}
-	}
-
-	return config
+	}()
+	
+	return nil
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func processConfigurations(dbClient *db.Client, networkManager network.NetworkManager, healthChecker *health.HealthChecker, logger *logrus.Logger) error {
+// processNetworkConfigurations는 네트워크 설정을 처리합니다
+func (a *Application) processNetworkConfigurations(ctx context.Context) error {
+	// 호스트네임 가져오기
 	hostname, err := os.Hostname()
 	if err != nil {
-		return fmt.Errorf("호스트네임 가져오기 실패: %w", err)
+		return err
 	}
-
-	// 호스트네임 유효성 검사
-	if err := utils.ValidateHostname(hostname); err != nil {
-		return fmt.Errorf("잘못된 호스트네임: %w", err)
-	}
-
-	// multi_interface 테이블에서 netplan_success=0이고 attached_node_name이 본인인 레코드 조회
-	pendingInterfaces, err := dbClient.GetPendingInterfaces(hostname)
-	if err != nil {
-		return fmt.Errorf("대기 중인 인터페이스 조회 실패: %w", err)
-	}
-
-	if len(pendingInterfaces) == 0 {
-		return nil // 처리할 인터페이스가 없음
-	}
-
-	logger.WithFields(logrus.Fields{
-		"node_name":        hostname,
-		"pending_count":    len(pendingInterfaces),
-	}).Info("대기 중인 인터페이스 발견")
-
-	// 인터페이스 이름 생성기 초기화
-	generator := network.NewInterfaceGenerator()
 	
-	var processedCount int
-	var failedCount int
+	// 네트워크 설정 유스케이스 실행
+	input := usecases.ConfigureNetworkInput{
+		NodeName: hostname,
+	}
+	
+	output, err := a.configureUseCase.Execute(ctx, input)
+	if err != nil {
+		return err
+	}
+	
+	// 헬스체크 통계 업데이트
+	healthService := a.container.GetHealthService()
+	for i := 0; i < output.ProcessedCount; i++ {
+		healthService.IncrementProcessedVMs()
+	}
+	for i := 0; i < output.FailedCount; i++ {
+		healthService.IncrementFailedConfigs()
+	}
+	
+	// 처리 결과 로깅
+	if output.TotalCount > 0 {
+		a.logger.WithFields(logrus.Fields{
+			"processed": output.ProcessedCount,
+			"failed":    output.FailedCount,
+			"total":     output.TotalCount,
+		}).Info("네트워크 설정 처리 완료")
+	}
+	
+	return nil
+}
 
-	for _, iface := range pendingInterfaces {
-		logger.WithFields(logrus.Fields{
-			"interface_id": iface.ID,
-			"mac_address":  iface.MacAddress,
-		}).Info("인터페이스 설정 처리 시작")
-
-		// 인터페이스 이름 생성 (multinic0~9)
-		interfaceName, err := generator.GenerateInterfaceName()
-		if err != nil {
-			logger.WithError(err).Error("인터페이스 이름 생성 실패")
-			failedCount++
-			healthChecker.IncrementFailedConfigs()
-			continue
-		}
-
-		logger.WithFields(logrus.Fields{
-			"interface_id":   iface.ID,
-			"interface_name": interfaceName,
-		}).Info("인터페이스 설정 적용 중")
-
-		// 네트워크 설정 적용 (재시도 포함)
-		err = utils.RetryWithBackoff(context.Background(), utils.RetryConfig{
-			MaxAttempts:  2,
-			InitialDelay: 2 * time.Second,
-			MaxDelay:     10 * time.Second,
-			Multiplier:   2.0,
-		}, func() error {
-			return networkManager.ConfigureInterface(iface, interfaceName)
-		})
-
-		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"interface_id":   iface.ID,
-				"interface_name": interfaceName,
-				"error":          err,
-			}).Error("인터페이스 설정 적용 실패")
-			failedCount++
-			healthChecker.IncrementFailedConfigs()
-			continue
-		}
-
-		// 성공한 경우 DB 상태 업데이트
-		if err := dbClient.UpdateInterfaceStatus(iface.ID, true); err != nil {
-			logger.WithFields(logrus.Fields{
-				"interface_id": iface.ID,
-				"error":        err,
-			}).Error("인터페이스 상태 업데이트 실패")
-		} else {
-			logger.WithFields(logrus.Fields{
-				"interface_id":   iface.ID,
-				"interface_name": interfaceName,
-			}).Info("인터페이스 설정 성공")
-			processedCount++
-			healthChecker.IncrementProcessedVMs()
+// shutdown은 애플리케이션을 정리하고 종료합니다
+func (a *Application) shutdown() error {
+	// 헬스체크 서버 정리
+	if a.healthServer != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		
+		if err := a.healthServer.Shutdown(shutdownCtx); err != nil {
+			a.logger.WithError(err).Error("헬스체크 서버 종료 실패")
 		}
 	}
-
-	logger.WithFields(logrus.Fields{
-		"processed": processedCount,
-		"failed":    failedCount,
-		"total":     len(pendingInterfaces),
-	}).Info("인터페이스 처리 완료")
-
+	
 	return nil
 }
