@@ -1,0 +1,184 @@
+package network
+
+import (
+	"context"
+	"fmt"
+	"multinic-agent-v2/internal/domain/entities"
+	"multinic-agent-v2/internal/domain/errors"
+	"multinic-agent-v2/internal/domain/interfaces"
+	"path/filepath"
+	"strings"
+	"time"
+	
+	"github.com/sirupsen/logrus"
+)
+
+// WickedAdapter는 SUSE Wicked을 사용하는 NetworkConfigurer 및 NetworkRollbacker 구현체입니다
+type WickedAdapter struct {
+	commandExecutor interfaces.CommandExecutor
+	fileSystem      interfaces.FileSystem
+	backupService   interfaces.BackupService
+	logger          *logrus.Logger
+	configDir       string
+}
+
+// NewWickedAdapter는 새로운 WickedAdapter를 생성합니다
+func NewWickedAdapter(
+	executor interfaces.CommandExecutor,
+	fs interfaces.FileSystem,
+	backup interfaces.BackupService,
+	logger *logrus.Logger,
+) *WickedAdapter {
+	return &WickedAdapter{
+		commandExecutor: executor,
+		fileSystem:      fs,
+		backupService:   backup,
+		logger:          logger,
+		configDir:       "/etc/sysconfig/network",
+	}
+}
+
+// Configure는 네트워크 인터페이스를 설정합니다
+func (a *WickedAdapter) Configure(ctx context.Context, iface entities.NetworkInterface, name entities.InterfaceName) error {
+	// 설정 파일 경로 생성
+	configPath := filepath.Join(a.configDir, fmt.Sprintf("ifcfg-%s", name.String()))
+	
+	// 백업 생성 (기존 설정이 있는 경우)
+	if err := a.backupService.CreateBackup(ctx, name.String(), configPath); err != nil {
+		a.logger.WithError(err).Warn("백업 생성 실패, 계속 진행")
+	}
+	
+	// Wicked 설정 생성
+	configContent := a.generateWickedConfig(iface, name.String())
+	
+	// 설정 파일 저장
+	if err := a.fileSystem.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		return errors.NewSystemError("Wicked 설정 파일 저장 실패", err)
+	}
+	
+	a.logger.WithFields(logrus.Fields{
+		"interface":   name.String(),
+		"config_path": configPath,
+	}).Info("Wicked 설정 파일 생성 완료")
+	
+	// 인터페이스 활성화
+	if err := a.activateInterface(ctx, name.String()); err != nil {
+		// 실패 시 롤백
+		if rollbackErr := a.Rollback(ctx, name); rollbackErr != nil {
+			a.logger.WithError(rollbackErr).Error("롤백 실패")
+		}
+		return errors.NewNetworkError("인터페이스 활성화 실패", err)
+	}
+	
+	return nil
+}
+
+// Validate는 설정된 인터페이스가 정상 작동하는지 검증합니다
+func (a *WickedAdapter) Validate(ctx context.Context, name entities.InterfaceName) error {
+	// 인터페이스가 존재하는지 확인
+	interfacePath := fmt.Sprintf("/sys/class/net/%s", name.String())
+	if !a.fileSystem.Exists(interfacePath) {
+		return errors.NewValidationError("네트워크 인터페이스가 존재하지 않음", nil)
+	}
+	
+	// 인터페이스가 UP 상태인지 확인
+	_, err := a.commandExecutor.ExecuteWithTimeout(ctx, 10*time.Second, "ip", "link", "show", name.String(), "up")
+	if err != nil {
+		return errors.NewValidationError("네트워크 인터페이스가 UP 상태가 아님", err)
+	}
+	
+	return nil
+}
+
+// Rollback은 인터페이스 설정을 이전 상태로 되돌립니다
+func (a *WickedAdapter) Rollback(ctx context.Context, name entities.InterfaceName) error {
+	configPath := filepath.Join(a.configDir, fmt.Sprintf("ifcfg-%s", name.String()))
+	
+	// 인터페이스 비활성화
+	if err := a.deactivateInterface(ctx, name.String()); err != nil {
+		a.logger.WithError(err).Warn("인터페이스 비활성화 실패")
+	}
+	
+	// 설정 파일 제거
+	if a.fileSystem.Exists(configPath) {
+		if err := a.fileSystem.Remove(configPath); err != nil {
+			return errors.NewSystemError("설정 파일 제거 실패", err)
+		}
+	}
+	
+	// 백업이 있으면 복원
+	if a.backupService.HasBackup(ctx, name.String()) {
+		if err := a.backupService.RestoreLatestBackup(ctx, name.String()); err != nil {
+			a.logger.WithError(err).Warn("백업 복원 실패")
+		}
+		
+		// 복원된 설정으로 인터페이스 재활성화
+		if err := a.activateInterface(ctx, name.String()); err != nil {
+			a.logger.WithError(err).Error("백업 복원 후 인터페이스 활성화 실패")
+		}
+	}
+	
+	a.logger.WithField("interface", name.String()).Info("네트워크 설정 롤백 완료")
+	return nil
+}
+
+// activateInterface는 wicked를 사용하여 인터페이스를 활성화합니다
+func (a *WickedAdapter) activateInterface(ctx context.Context, interfaceName string) error {
+	_, err := a.commandExecutor.ExecuteWithTimeout(
+		ctx,
+		30*time.Second,
+		"wicked", "ifup", interfaceName,
+	)
+	return err
+}
+
+// deactivateInterface는 wicked를 사용하여 인터페이스를 비활성화합니다
+func (a *WickedAdapter) deactivateInterface(ctx context.Context, interfaceName string) error {
+	_, err := a.commandExecutor.ExecuteWithTimeout(
+		ctx,
+		30*time.Second,
+		"wicked", "ifdown", interfaceName,
+	)
+	return err
+}
+
+// generateWickedConfig는 Wicked 설정 파일 내용을 생성합니다
+func (a *WickedAdapter) generateWickedConfig(iface entities.NetworkInterface, interfaceName string) string {
+	var config strings.Builder
+	
+	// 기본 설정
+	config.WriteString("STARTMODE=auto\n")
+	config.WriteString("BOOTPROTO=static\n")
+	config.WriteString(fmt.Sprintf("LLADDR=%s\n", iface.MacAddress))
+	config.WriteString("MTU=1500\n")
+	
+	// IP 주소 설정
+	if iface.IPAddress != "" {
+		config.WriteString(fmt.Sprintf("IPADDR=%s\n", iface.IPAddress))
+	}
+	
+	// 서브넷 마스크 설정
+	if iface.SubnetMask != "" {
+		config.WriteString(fmt.Sprintf("NETMASK=%s\n", iface.SubnetMask))
+	}
+	
+	// 게이트웨이 설정
+	if iface.Gateway != "" {
+		config.WriteString(fmt.Sprintf("GATEWAY=%s\n", iface.Gateway))
+	}
+	
+	// DNS 설정
+	if iface.DNS != "" {
+		dnsServers := strings.Split(iface.DNS, ",")
+		for i, dns := range dnsServers {
+			dns = strings.TrimSpace(dns)
+			if i == 0 {
+				config.WriteString(fmt.Sprintf("DNS1=%s\n", dns))
+			} else if i == 1 {
+				config.WriteString(fmt.Sprintf("DNS2=%s\n", dns))
+			}
+		}
+	}
+	
+	return config.String()
+}
