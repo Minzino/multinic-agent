@@ -72,7 +72,7 @@ func (a *NetplanAdapter) Configure(ctx context.Context, iface entities.NetworkIn
 	// Netplan 적용
 	if err := a.applyNetplan(ctx); err != nil {
 		// 실패 시 롤백
-		if rollbackErr := a.Rollback(ctx, name); rollbackErr != nil {
+		if rollbackErr := a.Rollback(ctx, name.String()); rollbackErr != nil {
 			a.logger.WithError(rollbackErr).Error("롤백 실패")
 		}
 		return errors.NewNetworkError("Netplan 설정 적용 실패", err)
@@ -99,9 +99,9 @@ func (a *NetplanAdapter) Validate(ctx context.Context, name entities.InterfaceNa
 }
 
 // Rollback은 인터페이스 설정을 이전 상태로 되돌립니다
-func (a *NetplanAdapter) Rollback(ctx context.Context, name entities.InterfaceName) error {
-	index := extractInterfaceIndex(name.String())
-	configPath := filepath.Join(a.configDir, fmt.Sprintf("9%d-%s.yaml", index, name.String()))
+func (a *NetplanAdapter) Rollback(ctx context.Context, name string) error {
+	index := extractInterfaceIndex(name)
+	configPath := filepath.Join(a.configDir, fmt.Sprintf("9%d-%s.yaml", index, name))
 	
 	// 설정 파일 제거
 	if a.fileSystem.Exists(configPath) {
@@ -117,7 +117,7 @@ func (a *NetplanAdapter) Rollback(ctx context.Context, name entities.InterfaceNa
 		return errors.NewNetworkError("롤백 후 Netplan 적용 실패", err)
 	}
 	
-	a.logger.WithField("interface", name.String()).Info("네트워크 설정 롤백 완료")
+	a.logger.WithField("interface", name).Info("네트워크 설정 롤백 완료")
 	return nil
 }
 

@@ -58,7 +58,7 @@ func (a *WickedAdapter) Configure(ctx context.Context, iface entities.NetworkInt
 	// 인터페이스 활성화
 	if err := a.activateInterface(ctx, name.String()); err != nil {
 		// 실패 시 롤백
-		if rollbackErr := a.Rollback(ctx, name); rollbackErr != nil {
+		if rollbackErr := a.Rollback(ctx, name.String()); rollbackErr != nil {
 			a.logger.WithError(rollbackErr).Error("롤백 실패")
 		}
 		return errors.NewNetworkError("인터페이스 활성화 실패", err)
@@ -85,11 +85,11 @@ func (a *WickedAdapter) Validate(ctx context.Context, name entities.InterfaceNam
 }
 
 // Rollback은 인터페이스 설정을 이전 상태로 되돌립니다
-func (a *WickedAdapter) Rollback(ctx context.Context, name entities.InterfaceName) error {
-	configPath := filepath.Join(a.configDir, fmt.Sprintf("ifcfg-%s", name.String()))
+func (a *WickedAdapter) Rollback(ctx context.Context, name string) error {
+	configPath := filepath.Join(a.configDir, fmt.Sprintf("ifcfg-%s", name))
 	
 	// 인터페이스 비활성화
-	if err := a.deactivateInterface(ctx, name.String()); err != nil {
+	if err := a.deactivateInterface(ctx, name); err != nil {
 		a.logger.WithError(err).Warn("인터페이스 비활성화 실패")
 	}
 	
@@ -102,7 +102,7 @@ func (a *WickedAdapter) Rollback(ctx context.Context, name entities.InterfaceNam
 	
 	// 백업 복원 로직 제거 - 단순히 설정 파일만 제거
 	
-	a.logger.WithField("interface", name.String()).Info("네트워크 설정 롤백 완료")
+	a.logger.WithField("interface", name).Info("네트워크 설정 롤백 완료")
 	return nil
 }
 
