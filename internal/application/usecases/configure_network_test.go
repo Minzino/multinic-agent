@@ -37,6 +37,11 @@ func (m *MockNetworkInterfaceRepository) GetInterfaceByID(ctx context.Context, i
 	return args.Get(0).(*entities.NetworkInterface), args.Error(1)
 }
 
+func (m *MockNetworkInterfaceRepository) GetActiveInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
+	args := m.Called(ctx, nodeName)
+	return args.Get(0).([]entities.NetworkInterface), args.Error(1)
+}
+
 type MockNetworkConfigurer struct {
 	mock.Mock
 }
@@ -55,7 +60,7 @@ type MockNetworkRollbacker struct {
 	mock.Mock
 }
 
-func (m *MockNetworkRollbacker) Rollback(ctx context.Context, name entities.InterfaceName) error {
+func (m *MockNetworkRollbacker) Rollback(ctx context.Context, name string) error {
 	args := m.Called(ctx, name)
 	return args.Error(0)
 }

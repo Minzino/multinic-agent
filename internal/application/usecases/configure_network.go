@@ -118,7 +118,7 @@ func (uc *ConfigureNetworkUseCase) processInterface(ctx context.Context, iface e
 	// 3. 네트워크 설정 적용
 	if err := uc.configurer.Configure(ctx, iface, interfaceName); err != nil {
 		// 롤백 시도
-		if rollbackErr := uc.rollbacker.Rollback(ctx, interfaceName); rollbackErr != nil {
+		if rollbackErr := uc.rollbacker.Rollback(ctx, interfaceName.String()); rollbackErr != nil {
 			uc.logger.WithError(rollbackErr).Error("롤백 실패")
 		}
 		return errors.NewNetworkError("네트워크 설정 적용 실패", err)
@@ -127,7 +127,7 @@ func (uc *ConfigureNetworkUseCase) processInterface(ctx context.Context, iface e
 	// 4. 설정 검증
 	if err := uc.configurer.Validate(ctx, interfaceName); err != nil {
 		// 검증 실패 시 롤백
-		if rollbackErr := uc.rollbacker.Rollback(ctx, interfaceName); rollbackErr != nil {
+		if rollbackErr := uc.rollbacker.Rollback(ctx, interfaceName.String()); rollbackErr != nil {
 			uc.logger.WithError(rollbackErr).Error("롤백 실패")
 		}
 		return errors.NewNetworkError("네트워크 설정 검증 실패", err)

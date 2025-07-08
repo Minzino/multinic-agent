@@ -50,6 +50,7 @@ type Application struct {
 	container           *container.Container
 	logger              *logrus.Logger
 	configureUseCase    *usecases.ConfigureNetworkUseCase
+	deleteUseCase       *usecases.DeleteNetworkUseCase
 	healthServer        *http.Server
 }
 
@@ -59,6 +60,7 @@ func NewApplication(container *container.Container, logger *logrus.Logger) *Appl
 		container:        container,
 		logger:           logger,
 		configureUseCase: container.GetConfigureNetworkUseCase(),
+		deleteUseCase:    container.GetDeleteNetworkUseCase(),
 	}
 }
 
@@ -132,32 +134,53 @@ func (a *Application) processNetworkConfigurations(ctx context.Context) error {
 		return err
 	}
 	
-	// 네트워크 설정 유스케이스 실행
-	input := usecases.ConfigureNetworkInput{
+	// 1. 네트워크 설정 유스케이스 실행 (생성/수정)
+	configInput := usecases.ConfigureNetworkInput{
 		NodeName: hostname,
 	}
 	
-	output, err := a.configureUseCase.Execute(ctx, input)
+	configOutput, err := a.configureUseCase.Execute(ctx, configInput)
 	if err != nil {
 		return err
 	}
 	
-	// 헬스체크 통계 업데이트
+	// 2. 네트워크 삭제 유스케이스 실행 (고아 인터페이스 정리)
+	deleteInput := usecases.DeleteNetworkInput{
+		NodeName: hostname,
+	}
+	
+	deleteOutput, err := a.deleteUseCase.Execute(ctx, deleteInput)
+	if err != nil {
+		a.logger.WithError(err).Error("고아 인터페이스 삭제 처리 실패")
+		// 삭제 실패는 치명적이지 않으므로 계속 진행
+	}
+	
+	// 헬스체크 통계 업데이트 (설정 관련)
 	healthService := a.container.GetHealthService()
-	for i := 0; i < output.ProcessedCount; i++ {
+	for i := 0; i < configOutput.ProcessedCount; i++ {
 		healthService.IncrementProcessedVMs()
 	}
-	for i := 0; i < output.FailedCount; i++ {
+	for i := 0; i < configOutput.FailedCount; i++ {
 		healthService.IncrementFailedConfigs()
 	}
 	
 	// 처리 결과 로깅
-	if output.TotalCount > 0 {
+	totalProcessed := configOutput.TotalCount + deleteOutput.TotalDeleted
+	if totalProcessed > 0 {
 		a.logger.WithFields(logrus.Fields{
-			"processed": output.ProcessedCount,
-			"failed":    output.FailedCount,
-			"total":     output.TotalCount,
-		}).Info("네트워크 설정 처리 완료")
+			"config_processed": configOutput.ProcessedCount,
+			"config_failed":    configOutput.FailedCount,
+			"config_total":     configOutput.TotalCount,
+			"deleted_total":    deleteOutput.TotalDeleted,
+			"delete_errors":    len(deleteOutput.Errors),
+		}).Info("네트워크 처리 완료")
+	}
+	
+	// 삭제 에러가 있다면 별도로 로깅
+	if len(deleteOutput.Errors) > 0 {
+		for _, delErr := range deleteOutput.Errors {
+			a.logger.WithError(delErr).Warn("인터페이스 삭제 중 에러 발생")
+		}
 	}
 	
 	return nil

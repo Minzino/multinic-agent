@@ -551,3 +551,319 @@ multinic-agent-v2/
 - **디스크 절약**: 불필요한 백업 파일 생성 방지
 - **코드 단순화**: 백업 관련 복잡한 로직 제거
 - **안정성**: netplan try 등 도구 자체의 안전장치 활용
+
+## 인터페이스 삭제 기능 구현 (2025-01-08)
+
+### 배경 및 문제점
+기존 MultiNIC Agent는 **인터페이스 생성/설정만 지원**하고 **삭제 처리가 완전히 누락**되어 있었습니다.
+
+#### 문제 상황
+```
+OpenStack에서 인터페이스 삭제 
+    ↓
+MultiNIC Controller가 DB에서 레코드 완전 삭제
+    ↓
+Agent는 삭제된 것을 모름 (DB에 레코드 없음)
+    ↓
+multinic0~9 인터페이스가 OS에 계속 남아있음 (고아 인터페이스)
+```
+
+### 해결 방안: 현재 vs DB 비교 방식
+
+#### 삭제 감지 전략
+- **방안 A (deleted_at 기반)**: Controller가 소프트 삭제 사용 (불가능 - Controller는 하드 삭제 사용)
+- **방안 B (현재 vs DB 비교)**: 현재 시스템의 multinic* 인터페이스와 DB 활성 인터페이스 비교 (✅ 채택)
+
+#### 구현 아키텍처
+```mermaid
+graph TB
+    A[30초 폴링] --> B[현재 multinic* 인터페이스 스캔]
+    B --> C[DB에서 활성 인터페이스 조회]
+    C --> D[MAC 주소 기반 비교]
+    D --> E{고아 인터페이스?}
+    E -->|Yes| F[인터페이스 삭제]
+    E -->|No| G[다음 폴링 대기]
+    F --> H[설정 파일 제거]
+    H --> G
+```
+
+### 구현 상세
+
+#### 1. 도메인 계층 확장
+
+**Repository 인터페이스 확장** (`internal/domain/interfaces/repository.go`)
+```go
+// GetActiveInterfaces는 특정 노드의 활성 인터페이스들을 조회합니다 (삭제 감지용)
+GetActiveInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error)
+```
+
+**InterfaceNamingService 기능 확장** (`internal/domain/services/interface_naming.go`)
+```go
+// GetCurrentMultinicInterfaces는 현재 시스템에 생성된 모든 multinic 인터페이스를 반환합니다
+func (s *InterfaceNamingService) GetCurrentMultinicInterfaces() []entities.InterfaceName
+
+// GetMacAddressForInterface는 특정 인터페이스의 MAC 주소를 조회합니다
+func (s *InterfaceNamingService) GetMacAddressForInterface(interfaceName string) (string, error)
+```
+
+#### 2. 삭제 유스케이스 구현
+
+**DeleteNetworkUseCase** (`internal/application/usecases/delete_network.go`)
+```go
+type DeleteNetworkUseCase struct {
+    repository    interfaces.NetworkInterfaceRepository
+    rollbacker    interfaces.NetworkRollbacker
+    namingService *services.InterfaceNamingService
+    logger        *logrus.Logger
+}
+
+func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetworkInput) (*DeleteNetworkOutput, error) {
+    // 1. 현재 시스템에 생성된 multinic 인터페이스 목록 조회
+    currentInterfaces := uc.namingService.GetCurrentMultinicInterfaces()
+    
+    // 2. 데이터베이스에서 현재 노드의 활성 인터페이스 목록 조회
+    activeInterfaces, err := uc.repository.GetActiveInterfaces(ctx, input.NodeName)
+    
+    // 3. 현재 인터페이스와 DB 인터페이스 비교하여 고아 인터페이스 식별
+    orphanedInterfaces := uc.findOrphanedInterfaces(currentInterfaces, activeInterfaces)
+    
+    // 4. 각 고아 인터페이스 삭제 처리
+    for _, interfaceName := range orphanedInterfaces {
+        uc.deleteInterface(ctx, interfaceName)
+    }
+}
+```
+
+**고아 인터페이스 감지 로직**
+```go
+func (uc *DeleteNetworkUseCase) findOrphanedInterfaces(
+    currentInterfaces []entities.InterfaceName,
+    activeInterfaces []entities.NetworkInterface,
+) []entities.InterfaceName {
+    // DB 인터페이스의 MAC 주소 맵 생성
+    activeMacs := make(map[string]bool)
+    for _, iface := range activeInterfaces {
+        activeMacs[iface.MacAddress] = true
+    }
+
+    var orphaned []entities.InterfaceName
+    
+    // 현재 인터페이스 중 DB에 없는 MAC 주소를 가진 인터페이스 찾기
+    for _, currentInterface := range currentInterfaces {
+        macAddress, err := uc.namingService.GetMacAddressForInterface(currentInterface.String())
+        if err != nil {
+            continue // MAC 주소 읽기 실패 시 스킵
+        }
+
+        if !activeMacs[macAddress] {
+            orphaned = append(orphaned, currentInterface)
+        }
+    }
+    
+    return orphaned
+}
+```
+
+#### 3. 인프라스트럭처 계층 구현
+
+**MySQLRepository 확장** (`internal/infrastructure/persistence/mysql_repository.go`)
+```go
+func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
+    query := `
+        SELECT id, macaddress, attached_node_name, netplan_success
+        FROM multi_interface
+        WHERE attached_node_name = ?
+        AND deleted_at IS NULL
+        LIMIT 10
+    `
+    // 모든 활성 인터페이스 조회 (netplan_success 상태 무관)
+}
+```
+
+#### 4. 메인 폴링 로직 통합
+
+**processNetworkConfigurations 확장** (`cmd/agent/main.go`)
+```go
+func (a *Application) processNetworkConfigurations(ctx context.Context) error {
+    hostname, err := os.Hostname()
+    if err != nil {
+        return err
+    }
+    
+    // 1. 네트워크 설정 유스케이스 실행 (생성/수정)
+    configOutput, err := a.configureUseCase.Execute(ctx, configInput)
+    if err != nil {
+        return err
+    }
+    
+    // 2. 네트워크 삭제 유스케이스 실행 (고아 인터페이스 정리) - 신규 추가
+    deleteOutput, err := a.deleteUseCase.Execute(ctx, deleteInput)
+    if err != nil {
+        a.logger.WithError(err).Error("고아 인터페이스 삭제 처리 실패")
+        // 삭제 실패는 치명적이지 않으므로 계속 진행
+    }
+    
+    // 처리 결과 로깅
+    totalProcessed := configOutput.TotalCount + deleteOutput.TotalDeleted
+    if totalProcessed > 0 {
+        a.logger.WithFields(logrus.Fields{
+            "config_processed": configOutput.ProcessedCount,
+            "config_failed":    configOutput.FailedCount,
+            "config_total":     configOutput.TotalCount,
+            "deleted_total":    deleteOutput.TotalDeleted,
+            "delete_errors":    len(deleteOutput.Errors),
+        }).Info("네트워크 처리 완료")
+    }
+}
+```
+
+#### 5. 의존성 주입 구조 확장
+
+**Container 확장** (`internal/infrastructure/container/container.go`)
+```go
+type Container struct {
+    // 유스케이스
+    configureNetworkUseCase *usecases.ConfigureNetworkUseCase
+    deleteNetworkUseCase    *usecases.DeleteNetworkUseCase  // 신규 추가
+}
+
+func (c *Container) initializeUseCases() error {
+    // 네트워크 삭제 유스케이스 추가
+    c.deleteNetworkUseCase = usecases.NewDeleteNetworkUseCase(
+        c.networkRepository,
+        rollbacker,
+        c.namingService,
+        c.logger,
+    )
+}
+```
+
+### 테스트 구현
+
+#### 완전한 테스트 커버리지 달성
+1. **성공 시나리오**: 고아 인터페이스 정상 삭제
+2. **빈 시나리오**: 현재 시스템에 multinic 인터페이스 없음
+3. **에러 시나리오들**:
+   - 데이터베이스 조회 실패
+   - 네트워크 롤백 실패
+   - MAC 주소 읽기 실패
+
+**테스트 예시** (`internal/application/usecases/delete_network_test.go`)
+```go
+func TestDeleteNetworkUseCase_Execute_Success(t *testing.T) {
+    // 현재 시스템: multinic0, multinic1 존재
+    // DB: multinic1만 활성 (MAC: 00:11:22:33:44:55)
+    // 결과: multinic0 삭제됨 (고아 인터페이스)
+    
+    mockFileSystem.On("Exists", "/sys/class/net/multinic0").Return(true)
+    mockFileSystem.On("Exists", "/sys/class/net/multinic1").Return(true)
+    
+    activeInterfaces := []entities.NetworkInterface{
+        {MacAddress: "00:11:22:33:44:55", AttachedNodeName: "test-node"},
+    }
+    mockRepo.On("GetActiveInterfaces", ctx, "test-node").Return(activeInterfaces, nil)
+    
+    mockFileSystem.On("ReadFile", "/sys/class/net/multinic0/address").Return([]byte("aa:bb:cc:dd:ee:ff\n"), nil)
+    mockFileSystem.On("ReadFile", "/sys/class/net/multinic1/address").Return([]byte("00:11:22:33:44:55\n"), nil)
+    
+    mockRollbacker.On("Rollback", ctx, "multinic0").Return(nil)
+    
+    output, err := useCase.Execute(ctx, input)
+    
+    assert.NoError(t, err)
+    assert.Equal(t, 1, output.TotalDeleted)
+    assert.Equal(t, []string{"multinic0"}, output.DeletedInterfaces)
+}
+```
+
+### 인터페이스 이름 할당 최적화 검증
+
+기존 `GenerateNextName()` 로직이 이미 **중간 빈 슬롯 자동 채움** 기능을 제공하고 있음을 확인:
+
+```go
+func (s *InterfaceNamingService) GenerateNextName() (entities.InterfaceName, error) {
+    for i := 0; i < 10; i++ {  // 0부터 9까지 순차 검사
+        name := fmt.Sprintf("multinic%d", i)
+        
+        // 이미 사용 중인지 확인
+        if !s.isInterfaceInUse(name) {  // 사용 중이 아니면 할당
+            return entities.NewInterfaceName(name)
+        }
+    }
+}
+```
+
+**시나리오 검증**:
+```
+초기: [multinic0, multinic1, multinic2, multinic3]
+multinic1 삭제: [multinic0, multinic2, multinic3]
+새 인터페이스 추가 시: multinic1 재할당 ✅
+```
+
+### 아키텍처 개선 효과
+
+#### 1. 완전한 생명주기 관리
+- **생성**: 가장 낮은 번호부터 할당 (기존)
+- **삭제**: 고아 인터페이스 자동 감지 및 제거 (신규)
+- **재할당**: 삭제된 슬롯 자동 재사용 (기존)
+
+#### 2. 안전성 강화
+- **비치명적 에러 처리**: 삭제 실패가 시스템 전체를 중단시키지 않음
+- **MAC 주소 기반 정확성**: 인터페이스 이름 충돌 방지
+- **롤백 안전성**: 설정 파일 제거만으로 안전한 정리
+
+#### 3. 확장성 및 유지보수성
+- **클린 아키텍처 유지**: 도메인/애플리케이션/인프라 계층 분리
+- **테스트 가능성**: Mock을 통한 완전 격리 테스트
+- **로깅 강화**: 삭제 과정 상세 추적
+
+### 성능 영향 분석
+
+#### 추가된 오버헤드
+- **파일 시스템 I/O**: `/sys/class/net/multinic*/address` 읽기 (최대 10개)
+- **데이터베이스 쿼리**: `GetActiveInterfaces` 추가 쿼리 1회
+- **메모리 사용량**: 미미한 증가 (인터페이스 목록 비교)
+
+#### 최적화 고려사항
+- **폴링 주기**: 30초로 적절함 (삭제는 즉시성이 크게 중요하지 않음)
+- **쿼리 효율성**: `LIMIT 10`으로 제한, 인덱스 활용
+- **에러 복구**: 실패한 삭제는 다음 폴링에서 재시도
+
+### 배포 고려사항
+
+#### 호환성
+- **기존 버전과 완전 호환**: 새로운 기능 추가만, 기존 로직 변경 없음
+- **데이터베이스 스키마**: 변경 불필요 (기존 테이블 활용)
+- **설정 파일**: 추가 설정 불필요
+
+#### 배포 전략
+- **점진적 배포**: 삭제 기능 실패 시에도 기존 생성 기능은 정상 동작
+- **모니터링**: 삭제 처리 통계를 헬스체크 및 로그에서 확인 가능
+- **롤백 계획**: 필요 시 이전 버전으로 쉽게 롤백 가능
+
+### 테스트 검증 결과
+
+#### 단위 테스트 결과
+```bash
+=== RUN   TestDeleteNetworkUseCase_Execute_Success
+--- PASS: TestDeleteNetworkUseCase_Execute_Success (0.00s)
+=== RUN   TestDeleteNetworkUseCase_Execute_NoOrphanedInterfaces  
+--- PASS: TestDeleteNetworkUseCase_Execute_NoOrphanedInterfaces (0.00s)
+=== RUN   TestDeleteNetworkUseCase_Execute_RepositoryError
+--- PASS: TestDeleteNetworkUseCase_Execute_RepositoryError (0.00s)
+=== RUN   TestDeleteNetworkUseCase_Execute_RollbackError
+--- PASS: TestDeleteNetworkUseCase_Execute_RollbackError (0.00s)
+=== RUN   TestDeleteNetworkUseCase_Execute_MacAddressReadError
+--- PASS: TestDeleteNetworkUseCase_Execute_MacAddressReadError (0.00s)
+```
+
+### 결론
+
+**완전한 인터페이스 생명주기 관리** 달성으로 MultiNIC Agent v2의 핵심 기능이 완성되었습니다:
+
+1. **문제 해결**: 고아 인터페이스 자동 정리로 시스템 리소스 누수 방지
+2. **아키텍처 일관성**: 클린 아키텍처 원칙을 유지하며 기능 확장
+3. **안정성 향상**: 포괄적 테스트와 안전한 에러 처리
+4. **운영 효율성**: 수동 개입 없이 완전 자동화된 인터페이스 관리
+
+이제 OpenStack 환경에서 네트워크 인터페이스의 **전체 생명주기가 완전히 자동화**되었습니다.

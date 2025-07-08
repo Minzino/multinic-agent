@@ -15,4 +15,7 @@ type NetworkInterfaceRepository interface {
 	
 	// GetInterfaceByID는 ID로 인터페이스를 조회합니다
 	GetInterfaceByID(ctx context.Context, id int) (*entities.NetworkInterface, error)
+	
+	// GetActiveInterfaces는 특정 노드의 활성 인터페이스들을 조회합니다 (삭제 감지용)
+	GetActiveInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error)
 }
