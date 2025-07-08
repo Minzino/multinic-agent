@@ -37,3 +37,41 @@ func (s *InterfaceNamingService) isInterfaceInUse(name string) bool {
 	// /sys/class/net 디렉토리에서 인터페이스 확인
 	return s.fileSystem.Exists(fmt.Sprintf("/sys/class/net/%s", name))
 }
+
+// GetCurrentMultinicInterfaces는 현재 시스템에 생성된 모든 multinic 인터페이스를 반환합니다
+func (s *InterfaceNamingService) GetCurrentMultinicInterfaces() []entities.InterfaceName {
+	var interfaces []entities.InterfaceName
+	
+	for i := 0; i < 10; i++ {
+		name := fmt.Sprintf("multinic%d", i)
+		if s.isInterfaceInUse(name) {
+			if interfaceName, err := entities.NewInterfaceName(name); err == nil {
+				interfaces = append(interfaces, interfaceName)
+			}
+		}
+	}
+	
+	return interfaces
+}
+
+// GetMacAddressForInterface는 특정 인터페이스의 MAC 주소를 조회합니다
+func (s *InterfaceNamingService) GetMacAddressForInterface(interfaceName string) (string, error) {
+	macPath := fmt.Sprintf("/sys/class/net/%s/address", interfaceName)
+	
+	if !s.fileSystem.Exists(macPath) {
+		return "", fmt.Errorf("인터페이스 %s의 MAC 주소 파일이 존재하지 않습니다", interfaceName)
+	}
+	
+	macBytes, err := s.fileSystem.ReadFile(macPath)
+	if err != nil {
+		return "", fmt.Errorf("인터페이스 %s의 MAC 주소 읽기 실패: %w", interfaceName, err)
+	}
+	
+	// 줄바꿈 문자 제거
+	macAddress := string(macBytes)
+	if len(macAddress) > 0 && macAddress[len(macAddress)-1] == '\n' {
+		macAddress = macAddress[:len(macAddress)-1]
+	}
+	
+	return macAddress, nil
+}

@@ -1,14 +1,15 @@
-# 🌐 MultiNIC Controller v0.5.0
+# 🌐 MultiNIC Controller v0.6.0
 
-> **Kubernetes 클러스터 네트워크 인터페이스 자동화 에이전트**
+> **Kubernetes 클러스터 네트워크 인터페이스 완전 자동화 에이전트**
 
-OpenStack 환경에서 다중 네트워크 인터페이스를 자동으로 관리하는 지능형 Kubernetes DaemonSet 에이전트입니다.
+OpenStack 환경에서 다중 네트워크 인터페이스의 **전체 생명주기**를 자동으로 관리하는 지능형 Kubernetes DaemonSet 에이전트입니다.
 
 ## ✨ 주요 특징
 
 ### 🎯 **완전 자동화**
-- 30초마다 데이터베이스를 모니터링하여 새로운 네트워크 요청 감지
-- MAC 주소 기반으로 네트워크 인터페이스 자동 생성 및 설정
+- 30초마다 데이터베이스를 모니터링하여 네트워크 변경사항 감지
+- MAC 주소 기반으로 네트워크 인터페이스 **생성/삭제** 자동 처리
+- **고아 인터페이스 자동 정리**: OpenStack 삭제 시 시스템에서 자동 제거
 - 실패 시 자동 롤백으로 시스템 안정성 보장
 
 ### 🏗️ **클린 아키텍처**
@@ -83,7 +84,7 @@ graph TB
 
 # 🔧 커스텀 설정으로 배포
 NAMESPACE=production \
-IMAGE_TAG=0.5.0 \
+IMAGE_TAG=0.6.0 \
 SSH_PASSWORD=your_password \
 ./scripts/deploy.sh
 ```
@@ -107,10 +108,10 @@ SSH_PASSWORD=your_password \
 ### 2️⃣ **수동 Helm 배포**
 ```bash
 # 이미지 빌드
-nerdctl --namespace=k8s.io build -t multinic-agent:0.5.0 .
+nerdctl --namespace=k8s.io build -t multinic-agent:0.6.0 .
 
 # 모든 노드에 이미지 배포 (각 노드마다 실행)
-nerdctl --namespace=k8s.io save multinic-agent:0.5.0 -o multinic-agent.tar
+nerdctl --namespace=k8s.io save multinic-agent:0.6.0 -o multinic-agent.tar
 scp multinic-agent.tar node:/tmp/
 ssh node "sudo nerdctl --namespace=k8s.io load -i /tmp/multinic-agent.tar"
 
@@ -119,7 +120,7 @@ helm install multinic-agent ./deployments/helm \
   --set database.host=YOUR_DB_HOST \
   --set database.password=YOUR_DB_PASSWORD \
   --set image.repository=multinic-agent \
-  --set image.tag=0.5.0 \
+  --set image.tag=0.6.0 \
   --set image.pullPolicy=Never
 ```
 
@@ -144,7 +145,7 @@ curl http://localhost:8080/
 ```bash
 # 배포 스크립트 환경 변수
 export IMAGE_NAME="multinic-agent"
-export IMAGE_TAG="0.5.0"
+export IMAGE_TAG="0.6.0"
 export NAMESPACE="multinic-system"
 export RELEASE_NAME="multinic-controller"
 export SSH_PASSWORD="your_ssh_password"
@@ -176,7 +177,7 @@ NAMESPACE=dev IMAGE_TAG=latest ./scripts/deploy.sh
 
 # 🔧 프로덕션 환경 배포
 NAMESPACE=production \
-IMAGE_TAG=0.5.0 \
+IMAGE_TAG=0.6.0 \
 RELEASE_NAME=multinic-prod \
 ./scripts/deploy.sh
 
@@ -185,7 +186,7 @@ helm install multinic-agent ./deployments/helm \
   --set nodeSelector.node-role=multinic-enabled
 ```
 
-## 💡 작동 원리
+## 💡 작동 원리 (v0.6.0 업데이트)
 
 ```mermaid
 sequenceDiagram
@@ -195,6 +196,7 @@ sequenceDiagram
     participant NIC as Network Interface
 
     loop 30초마다
+        Note over Agent: 인터페이스 생성 처리
         Agent->>DB: 대기 중인 인터페이스 조회
         DB-->>Agent: MAC 주소 리스트 반환
         
@@ -209,6 +211,19 @@ sequenceDiagram
             OS-->>Agent: 실패 응답
             Agent->>Agent: 자동 롤백
             Agent->>DB: netplan_success = 0
+        end
+        
+        Note over Agent: 고아 인터페이스 삭제 처리 (신규)
+        Agent->>OS: 현재 multinic* 인터페이스 스캔
+        OS-->>Agent: 인터페이스 목록 + MAC 주소
+        Agent->>DB: 활성 인터페이스 조회
+        DB-->>Agent: DB 인터페이스 목록
+        
+        Agent->>Agent: MAC 주소 기반 비교
+        alt 고아 인터페이스 발견
+            Agent->>OS: 설정 파일 제거
+            Agent->>NIC: 인터페이스 정리
+            Note over Agent: 중간 슬롯 자동 재사용 가능
         end
     end
 ```
@@ -332,15 +347,37 @@ kubectl exec <pod-name> -- hostname
 # 3. MAC 주소 형식 검증 (00:11:22:33:44:55)
 ```
 
+#### 🔍 고아 인터페이스 삭제 처리 실패 (v0.6.0 신규)
+```bash
+# 1. 삭제 관련 로그 확인
+kubectl logs <pod-name> | grep -i "delete\|orphan"
+
+# 2. 현재 multinic 인터페이스 상태 확인
+kubectl exec <pod-name> -- ls /sys/class/net/ | grep multinic
+
+# 3. MAC 주소 확인
+kubectl exec <pod-name> -- cat /sys/class/net/multinic*/address
+
+# 4. 삭제 통계 확인 (헬스체크)
+kubectl port-forward <pod-name> 8080:8080
+curl http://localhost:8080/ | jq '.deleted_interfaces'
+```
+
 ## 📋 로드맵
 
-### v0.6.0 (계획)
+### v0.6.0 (완료) ✅
+- [x] **인터페이스 삭제 기능**: 고아 인터페이스 자동 감지 및 삭제
+- [x] **MAC 주소 기반 매핑**: 정확한 인터페이스 식별
+- [x] **스마트 슬롯 재사용**: 중간 빈 번호 자동 할당
+- [x] **완전한 테스트 커버리지**: 삭제 로직 검증
+
+### v0.7.0 (계획)
 - [ ] IPv6 지원
-- [ ] Prometheus 메트릭 내보내기
+- [ ] Prometheus 메트릭 내보내기  
 - [ ] 동적 폴링 간격 조정
 - [ ] Web UI 대시보드
 
-### v0.7.0 (계획)
+### v0.8.0 (계획)
 - [ ] 고급 네트워크 설정 옵션
 - [ ] 인터페이스 수 제한 확장 (20개)
 - [ ] 양방향 동기화 지원
