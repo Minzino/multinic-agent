@@ -10,11 +10,6 @@ type NetworkInterface struct {
 	ID               int
 	MacAddress       string
 	AttachedNodeName string
-	IPAddress        string
-	SubnetMask       string
-	Gateway          string
-	DNS              string
-	VLAN             int
 	Status           InterfaceStatus
 }
 

@@ -29,8 +29,7 @@ func NewMySQLRepository(db *sql.DB, logger *logrus.Logger) interfaces.NetworkInt
 // GetPendingInterfaces는 특정 노드의 설정 대기 중인 인터페이스들을 조회합니다
 func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
 	query := `
-		SELECT id, macaddress, attached_node_name, ip_address, 
-		       subnet_mask, gateway, dns, vlan
+		SELECT id, macaddress, attached_node_name, netplan_success
 		FROM multi_interface
 		WHERE netplan_success = 0 
 		AND attached_node_name = ?
@@ -48,35 +47,17 @@ func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName str
 	
 	for rows.Next() {
 		var iface entities.NetworkInterface
-		var ipAddress, subnetMask, gateway, dns sql.NullString
+		var netplanSuccess int
 		
 		err := rows.Scan(
 			&iface.ID,
 			&iface.MacAddress,
 			&iface.AttachedNodeName,
-			&ipAddress,
-			&subnetMask,
-			&gateway,
-			&dns,
-			&iface.VLAN,
+			&netplanSuccess,
 		)
 		if err != nil {
 			r.logger.WithError(err).Error("행 스캔 실패")
 			continue
-		}
-		
-		// NULL 값 처리
-		if ipAddress.Valid {
-			iface.IPAddress = ipAddress.String
-		}
-		if subnetMask.Valid {
-			iface.SubnetMask = subnetMask.String
-		}
-		if gateway.Valid {
-			iface.Gateway = gateway.String
-		}
-		if dns.Valid {
-			iface.DNS = dns.String
 		}
 		
 		iface.Status = entities.StatusPending
@@ -133,25 +114,18 @@ func (r *MySQLRepository) UpdateInterfaceStatus(ctx context.Context, interfaceID
 // GetInterfaceByID는 ID로 인터페이스를 조회합니다
 func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entities.NetworkInterface, error) {
 	query := `
-		SELECT id, macaddress, attached_node_name, ip_address,
-		       subnet_mask, gateway, dns, vlan, netplan_success
+		SELECT id, macaddress, attached_node_name, netplan_success
 		FROM multi_interface
 		WHERE id = ? AND deleted_at IS NULL
 	`
 	
 	var iface entities.NetworkInterface
-	var ipAddress, subnetMask, gateway, dns sql.NullString
 	var netplanSuccess int
 	
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&iface.ID,
 		&iface.MacAddress,
 		&iface.AttachedNodeName,
-		&ipAddress,
-		&subnetMask,
-		&gateway,
-		&dns,
-		&iface.VLAN,
 		&netplanSuccess,
 	)
 	
@@ -160,20 +134,6 @@ func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entiti
 	}
 	if err != nil {
 		return nil, errors.NewSystemError("데이터베이스 조회 실패", err)
-	}
-	
-	// NULL 값 처리
-	if ipAddress.Valid {
-		iface.IPAddress = ipAddress.String
-	}
-	if subnetMask.Valid {
-		iface.SubnetMask = subnetMask.String
-	}
-	if gateway.Valid {
-		iface.Gateway = gateway.String
-	}
-	if dns.Valid {
-		iface.DNS = dns.String
 	}
 	
 	// 상태 매핑

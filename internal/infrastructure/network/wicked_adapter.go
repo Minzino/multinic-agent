@@ -148,37 +148,9 @@ func (a *WickedAdapter) generateWickedConfig(iface entities.NetworkInterface, in
 	
 	// 기본 설정
 	config.WriteString("STARTMODE=auto\n")
-	config.WriteString("BOOTPROTO=static\n")
+	config.WriteString("BOOTPROTO=none\n")
 	config.WriteString(fmt.Sprintf("LLADDR=%s\n", iface.MacAddress))
 	config.WriteString("MTU=1500\n")
-	
-	// IP 주소 설정
-	if iface.IPAddress != "" {
-		config.WriteString(fmt.Sprintf("IPADDR=%s\n", iface.IPAddress))
-	}
-	
-	// 서브넷 마스크 설정
-	if iface.SubnetMask != "" {
-		config.WriteString(fmt.Sprintf("NETMASK=%s\n", iface.SubnetMask))
-	}
-	
-	// 게이트웨이 설정
-	if iface.Gateway != "" {
-		config.WriteString(fmt.Sprintf("GATEWAY=%s\n", iface.Gateway))
-	}
-	
-	// DNS 설정
-	if iface.DNS != "" {
-		dnsServers := strings.Split(iface.DNS, ",")
-		for i, dns := range dnsServers {
-			dns = strings.TrimSpace(dns)
-			if i == 0 {
-				config.WriteString(fmt.Sprintf("DNS1=%s\n", dns))
-			} else if i == 1 {
-				config.WriteString(fmt.Sprintf("DNS2=%s\n", dns))
-			}
-		}
-	}
 	
 	return config.String()
 }

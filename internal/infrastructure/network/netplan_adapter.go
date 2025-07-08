@@ -164,37 +164,14 @@ func (a *NetplanAdapter) generateNetplanConfig(iface entities.NetworkInterface, 
 			"ethernets": map[string]interface{}{
 				interfaceName: map[string]interface{}{
 					"dhcp4": false,
-					"dhcp6": false,
 					"match": map[string]interface{}{
 						"macaddress": iface.MacAddress,
 					},
+					"set-name": interfaceName,
 					"mtu": 1500,
 				},
 			},
 		},
-	}
-	
-	// IP 주소가 있으면 추가
-	if iface.IPAddress != "" && iface.SubnetMask != "" {
-		cidr := fmt.Sprintf("%s/%s", iface.IPAddress, iface.SubnetMask)
-		ethernet := config["network"].(map[string]interface{})["ethernets"].(map[string]interface{})[interfaceName].(map[string]interface{})
-		ethernet["addresses"] = []string{cidr}
-		
-		// 게이트웨이 설정
-		if iface.Gateway != "" {
-			ethernet["gateway4"] = iface.Gateway
-		}
-		
-		// DNS 설정
-		if iface.DNS != "" {
-			dnsServers := strings.Split(iface.DNS, ",")
-			for i, dns := range dnsServers {
-				dnsServers[i] = strings.TrimSpace(dns)
-			}
-			ethernet["nameservers"] = map[string]interface{}{
-				"addresses": dnsServers,
-			}
-		}
 	}
 	
 	return config

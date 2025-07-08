@@ -421,3 +421,63 @@ tolerations:
 ```
 
 이 설정으로 `node-role.kubernetes.io/control-plane:NoSchedule` taint가 있는 마스터 노드에도 Pod가 스케줄링됩니다.
+
+## 데이터베이스 스키마 불일치 버그 수정 (2025-01-08)
+
+### 문제 발생
+배포 후 다음과 같은 에러 발생:
+```
+Error 1054 (42S22): Unknown column 'ip_address' in 'field list'
+```
+
+### 원인
+- 코드에서 존재하지 않는 필드들을 조회 시도 (`ip_address`, `subnet_mask`, `gateway`, `dns`, `vlan`)
+- 실제 테이블에는 `macaddress`, `attached_node_name` 등만 존재
+- Netplan 설정은 MAC 주소와 인터페이스 이름만 필요
+
+### 수정 내용
+1. **엔티티 구조 단순화**
+   ```go
+   // 기존
+   type NetworkInterface struct {
+       ID, MacAddress, AttachedNodeName string
+       IPAddress, SubnetMask, Gateway, DNS string  // 제거
+       VLAN int                                     // 제거
+   }
+   
+   // 변경
+   type NetworkInterface struct {
+       ID               int
+       MacAddress       string
+       AttachedNodeName string
+       Status           InterfaceStatus
+   }
+   ```
+
+2. **데이터베이스 쿼리 수정**
+   ```sql
+   -- 기존
+   SELECT id, macaddress, attached_node_name, ip_address, 
+          subnet_mask, gateway, dns, vlan
+   
+   -- 변경  
+   SELECT id, macaddress, attached_node_name, netplan_success
+   ```
+
+3. **Netplan 설정 단순화**
+   ```yaml
+   # 실제 생성되는 설정
+   network:
+     ethernets:
+       multinic0:
+         dhcp4: false
+         match:
+           macaddress: fa:16:3e:b1:29:8f
+         set-name: multinic0
+         mtu: 1500
+     version: 2
+   ```
+
+4. **Wicked 설정도 동일하게 단순화**
+   - BOOTPROTO를 'static'에서 'none'으로 변경
+   - IP 관련 설정 모두 제거
