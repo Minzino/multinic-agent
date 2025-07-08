@@ -481,3 +481,43 @@ Error 1054 (42S22): Unknown column 'ip_address' in 'field list'
 4. **Wicked 설정도 동일하게 단순화**
    - BOOTPROTO를 'static'에서 'none'으로 변경
    - IP 관련 설정 모두 제거
+
+## 레거시 코드 정리 (2025-01-08)
+
+### 정리 내용
+클린 아키텍처 마이그레이션 완료로 인한 사용하지 않는 코드 제거:
+
+1. **pkg/ 디렉토리 전체 제거**
+   - pkg/db/ - 기존 데이터베이스 연결 로직 (→ internal/infrastructure/persistence/)
+   - pkg/health/ - 레거시 헬스체크 (→ internal/infrastructure/health/)
+   - pkg/netplan/ - 레거시 netplan 관리 (→ internal/infrastructure/network/)
+   - pkg/network/ - 레거시 네트워크 관리 (→ internal/infrastructure/network/)
+   - pkg/utils/ - 유틸리티 함수들 (→ internal/domain/services/)
+
+2. **레거시 파일 제거**
+   - cmd/agent/main_legacy.go - 이전 메인 파일
+   - test/integration/ - pkg 의존성이 있는 통합 테스트
+
+3. **보안 개선**
+   - deploy.sh의 SSH_PASSWORD를 placeholder로 변경
+   - 하드코딩된 패스워드 제거
+
+### 정리 효과
+- **코드베이스 크기 감소**: 불필요한 중복 코드 제거
+- **아키텍처 일관성**: 클린 아키텍처로 완전 통일
+- **보안 강화**: 하드코딩된 민감 정보 제거
+- **유지보수성 향상**: 단일 코드 패스로 유지
+
+### 프로젝트 구조 (최종)
+```
+multinic-agent-v2/
+├── cmd/agent/
+│   └── main.go              # 단일 진입점
+├── internal/                # 클린 아키텍처 구조
+│   ├── domain/              # 도메인 계층
+│   ├── application/         # 애플리케이션 계층  
+│   ├── infrastructure/      # 인프라스트럭처 계층
+│   └── interfaces/          # 인터페이스 어댑터
+├── deployments/helm/        # Helm 차트
+└── scripts/                 # 배포 스크립트
+```

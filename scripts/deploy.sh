@@ -16,7 +16,7 @@ IMAGE_NAME=${IMAGE_NAME:-"multinic-agent"}
 IMAGE_TAG=${IMAGE_TAG:-"0.5.0"}
 NAMESPACE=${NAMESPACE:-"default"}
 RELEASE_NAME=${RELEASE_NAME:-"multinic-agent"}
-SSH_PASSWORD=${SSH_PASSWORD:-"cloud1234"}
+SSH_PASSWORD=${SSH_PASSWORD:-"YOUR_SSH_PASSWORD"}
 
 # 모든 노드 목록을 동적으로 가져오기
 ALL_NODES=($(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'))
