@@ -146,3 +146,59 @@ func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entiti
 	
 	return &iface, nil
 }
+
+// GetActiveInterfaces는 특정 노드의 활성 인터페이스들을 조회합니다 (삭제 감지용)
+func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
+	query := `
+		SELECT id, macaddress, attached_node_name, netplan_success
+		FROM multi_interface
+		WHERE attached_node_name = ?
+		AND deleted_at IS NULL
+		LIMIT 10
+	`
+	
+	rows, err := r.db.QueryContext(ctx, query, nodeName)
+	if err != nil {
+		return nil, errors.NewSystemError("데이터베이스 조회 실패", err)
+	}
+	defer rows.Close()
+	
+	var interfaces []entities.NetworkInterface
+	
+	for rows.Next() {
+		var iface entities.NetworkInterface
+		var netplanSuccess int
+		
+		err := rows.Scan(
+			&iface.ID,
+			&iface.MacAddress,
+			&iface.AttachedNodeName,
+			&netplanSuccess,
+		)
+		if err != nil {
+			r.logger.WithError(err).Error("행 스캔 실패")
+			continue
+		}
+		
+		// 상태 매핑
+		switch netplanSuccess {
+		case 1:
+			iface.Status = entities.StatusConfigured
+		default:
+			iface.Status = entities.StatusPending
+		}
+		
+		interfaces = append(interfaces, iface)
+	}
+	
+	if err = rows.Err(); err != nil {
+		return nil, errors.NewSystemError("결과 처리 중 오류", err)
+	}
+	
+	r.logger.WithFields(logrus.Fields{
+		"node_name":          nodeName,
+		"active_interfaces":  len(interfaces),
+	}).Debug("활성 인터페이스 조회 완료")
+	
+	return interfaces, nil
+}

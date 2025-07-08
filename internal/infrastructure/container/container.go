@@ -36,6 +36,7 @@ type Container struct {
 	
 	// 유스케이스
 	configureNetworkUseCase *usecases.ConfigureNetworkUseCase
+	deleteNetworkUseCase    *usecases.DeleteNetworkUseCase
 	
 	// 데이터베이스
 	db *sql.DB
@@ -138,6 +139,14 @@ func (c *Container) initializeUseCases() error {
 		c.logger,
 	)
 	
+	// 네트워크 삭제 유스케이스
+	c.deleteNetworkUseCase = usecases.NewDeleteNetworkUseCase(
+		c.networkRepository,
+		rollbacker,
+		c.namingService,
+		c.logger,
+	)
+	
 	return nil
 }
 
@@ -160,6 +169,11 @@ func (c *Container) GetHealthService() *health.HealthService {
 // GetConfigureNetworkUseCase는 네트워크 설정 유스케이스를 반환합니다
 func (c *Container) GetConfigureNetworkUseCase() *usecases.ConfigureNetworkUseCase {
 	return c.configureNetworkUseCase
+}
+
+// GetDeleteNetworkUseCase는 네트워크 삭제 유스케이스를 반환합니다
+func (c *Container) GetDeleteNetworkUseCase() *usecases.DeleteNetworkUseCase {
+	return c.deleteNetworkUseCase
 }
 
 // Close는 컨테이너를 정리합니다
