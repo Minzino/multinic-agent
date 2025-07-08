@@ -103,7 +103,7 @@ func (c *Container) initializeServices() error {
 	c.healthService = health.NewHealthService(c.clock, c.logger)
 	
 	// 인터페이스 네이밍 서비스
-	c.namingService = services.NewInterfaceNamingService(c.fileSystem)
+	c.namingService = services.NewInterfaceNamingService(c.fileSystem, c.commandExecutor)
 	
 	// 네트워크 관리자 팩토리
 	c.networkFactory = network.NewNetworkManagerFactory(

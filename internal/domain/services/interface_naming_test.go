@@ -1,9 +1,11 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
+	"time"
 	
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -42,6 +44,21 @@ func (m *MockFileSystem) Remove(path string) error {
 func (m *MockFileSystem) ListFiles(path string) ([]string, error) {
 	args := m.Called(path)
 	return args.Get(0).([]string), args.Error(1)
+}
+
+// MockCommandExecutor는 CommandExecutor 인터페이스의 목 구현체입니다
+type MockCommandExecutor struct {
+	mock.Mock
+}
+
+func (m *MockCommandExecutor) Execute(ctx context.Context, command string, args ...string) ([]byte, error) {
+	mockArgs := m.Called(ctx, command, args)
+	return mockArgs.Get(0).([]byte), mockArgs.Error(1)
+}
+
+func (m *MockCommandExecutor) ExecuteWithTimeout(ctx context.Context, timeout time.Duration, command string, args ...string) ([]byte, error) {
+	mockArgs := m.Called(ctx, timeout, command, args)
+	return mockArgs.Get(0).([]byte), mockArgs.Error(1)
 }
 
 func TestInterfaceNamingService_GenerateNextName(t *testing.T) {
@@ -123,7 +140,8 @@ func TestInterfaceNamingService_GenerateNextName(t *testing.T) {
 				}
 			}
 			
-			service := NewInterfaceNamingService(mockFS)
+			mockExecutor := new(MockCommandExecutor)
+			service := NewInterfaceNamingService(mockFS, mockExecutor)
 			result, err := service.GenerateNextName()
 			
 			if tt.wantError {
@@ -163,13 +181,172 @@ func TestInterfaceNamingService_isInterfaceInUse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockFS := new(MockFileSystem)
+			mockExecutor := new(MockCommandExecutor)
 			expectedPath := fmt.Sprintf("/sys/class/net/%s", tt.interfaceName)
 			mockFS.On("Exists", expectedPath).Return(tt.exists)
 			
-			service := NewInterfaceNamingService(mockFS)
+			service := NewInterfaceNamingService(mockFS, mockExecutor)
 			result := service.isInterfaceInUse(tt.interfaceName)
 			
 			assert.Equal(t, tt.expected, result)
+			mockFS.AssertExpectations(t)
+		})
+	}
+}
+
+func TestInterfaceNamingService_GetCurrentMultinicInterfaces_ConfigurationBased(t *testing.T) {
+	tests := []struct {
+		name           string
+		setupMock      func(*MockFileSystem)
+		expectedCount  int
+		expectedNames  []string
+	}{
+		{
+			name: "Netplan 설정 파일 기반 인터페이스 감지",
+			setupMock: func(mockFS *MockFileSystem) {
+				// multinic0과 multinic2의 Netplan 설정 파일이 존재
+				mockFS.On("Exists", "/etc/netplan/90-multinic0.yaml").Return(true)
+				mockFS.On("Exists", "/etc/sysconfig/network/ifcfg-multinic0").Return(false)
+				
+				mockFS.On("Exists", "/etc/netplan/91-multinic1.yaml").Return(false)
+				mockFS.On("Exists", "/etc/sysconfig/network/ifcfg-multinic1").Return(false)
+				
+				mockFS.On("Exists", "/etc/netplan/92-multinic2.yaml").Return(true)
+				mockFS.On("Exists", "/etc/sysconfig/network/ifcfg-multinic2").Return(false)
+				
+				// 나머지 인터페이스들은 설정 파일이 없음
+				for i := 3; i < 10; i++ {
+					mockFS.On("Exists", fmt.Sprintf("/etc/netplan/9%d-multinic%d.yaml", i, i)).Return(false)
+					mockFS.On("Exists", fmt.Sprintf("/etc/sysconfig/network/ifcfg-multinic%d", i)).Return(false)
+				}
+			},
+			expectedCount: 2,
+			expectedNames: []string{"multinic0", "multinic2"},
+		},
+		{
+			name: "Wicked 설정 파일 기반 인터페이스 감지",
+			setupMock: func(mockFS *MockFileSystem) {
+				// multinic1의 Wicked 설정 파일이 존재
+				mockFS.On("Exists", "/etc/netplan/91-multinic1.yaml").Return(false)
+				mockFS.On("Exists", "/etc/sysconfig/network/ifcfg-multinic1").Return(true)
+				
+				// 나머지 인터페이스들은 설정 파일이 없음
+				for i := 0; i < 10; i++ {
+					if i != 1 {
+						mockFS.On("Exists", fmt.Sprintf("/etc/netplan/9%d-multinic%d.yaml", i, i)).Return(false)
+						mockFS.On("Exists", fmt.Sprintf("/etc/sysconfig/network/ifcfg-multinic%d", i)).Return(false)
+					}
+				}
+			},
+			expectedCount: 1,
+			expectedNames: []string{"multinic1"},
+		},
+		{
+			name: "설정 파일이 없는 경우",
+			setupMock: func(mockFS *MockFileSystem) {
+				// 모든 설정 파일이 존재하지 않음
+				for i := 0; i < 10; i++ {
+					mockFS.On("Exists", fmt.Sprintf("/etc/netplan/9%d-multinic%d.yaml", i, i)).Return(false)
+					mockFS.On("Exists", fmt.Sprintf("/etc/sysconfig/network/ifcfg-multinic%d", i)).Return(false)
+				}
+			},
+			expectedCount: 0,
+			expectedNames: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockFS := new(MockFileSystem)
+			mockExecutor := new(MockCommandExecutor)
+			tt.setupMock(mockFS)
+
+			service := NewInterfaceNamingService(mockFS, mockExecutor)
+			interfaces := service.GetCurrentMultinicInterfaces()
+
+			assert.Equal(t, tt.expectedCount, len(interfaces))
+			
+			actualNames := make([]string, len(interfaces))
+			for i, iface := range interfaces {
+				actualNames[i] = iface.String()
+			}
+			
+			assert.ElementsMatch(t, tt.expectedNames, actualNames)
+			mockFS.AssertExpectations(t)
+		})
+	}
+}
+
+func TestInterfaceNamingService_GetMacAddressForInterface_FromIPCommand(t *testing.T) {
+	tests := []struct {
+		name          string
+		interfaceName string
+		setupMock     func(*MockFileSystem, *MockCommandExecutor)
+		expectedMac   string
+		expectError   bool
+	}{
+		{
+			name:          "ip 명령어로 MAC 주소 추출 성공",
+			interfaceName: "multinic0",
+			setupMock: func(mockFS *MockFileSystem, mockExecutor *MockCommandExecutor) {
+				ipOutput := `2: multinic0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc fq_codel state UP group default qlen 1000
+    link/ether fa:16:3e:b1:29:8f brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::f816:3eff:feb1:298f/64 scope link
+       valid_lft forever preferred_lft forever`
+				mockExecutor.On("ExecuteWithTimeout", 
+					mock.AnythingOfType("*context.timerCtx"), 
+					mock.AnythingOfType("time.Duration"), 
+					"ip", 
+					[]string{"addr", "show", "multinic0"}).Return([]byte(ipOutput), nil)
+			},
+			expectedMac: "fa:16:3e:b1:29:8f",
+			expectError: false,
+		},
+		{
+			name:          "인터페이스가 존재하지 않는 경우",
+			interfaceName: "multinic9",
+			setupMock: func(mockFS *MockFileSystem, mockExecutor *MockCommandExecutor) {
+				mockExecutor.On("ExecuteWithTimeout", 
+					mock.AnythingOfType("*context.timerCtx"), 
+					mock.AnythingOfType("time.Duration"), 
+					"ip", 
+					[]string{"addr", "show", "multinic9"}).Return([]byte(""), fmt.Errorf("Device \"multinic9\" does not exist"))
+			},
+			expectedMac: "",
+			expectError: true,
+		},
+		{
+			name:          "MAC 주소를 찾을 수 없는 경우",
+			interfaceName: "multinic1",
+			setupMock: func(mockFS *MockFileSystem, mockExecutor *MockCommandExecutor) {
+				ipOutput := `3: multinic1: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN group default
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00`
+				mockExecutor.On("ExecuteWithTimeout", 
+					mock.AnythingOfType("*context.timerCtx"), 
+					mock.AnythingOfType("time.Duration"), 
+					"ip", 
+					[]string{"addr", "show", "multinic1"}).Return([]byte(ipOutput), nil)
+			},
+			expectedMac: "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockFS := new(MockFileSystem)
+			mockExecutor := new(MockCommandExecutor)
+			tt.setupMock(mockFS, mockExecutor)
+
+			service := NewInterfaceNamingService(mockFS, mockExecutor)
+			mac, err := service.GetMacAddressForInterface(tt.interfaceName)
+
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedMac, mac)
+			}
 			mockFS.AssertExpectations(t)
 		})
 	}
