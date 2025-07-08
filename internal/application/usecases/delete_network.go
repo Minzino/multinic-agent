@@ -49,7 +49,7 @@ func NewDeleteNetworkUseCase(
 func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetworkInput) (*DeleteNetworkOutput, error) {
 	uc.logger.WithFields(logrus.Fields{
 		"node_name": input.NodeName,
-	}).Info("고아 인터페이스 삭제 프로세스 시작")
+	}).Debug("고아 인터페이스 삭제 프로세스 시작")
 
 	output := &DeleteNetworkOutput{
 		DeletedInterfaces: []string{},
@@ -64,13 +64,14 @@ func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetwork
 	}
 
 	if len(orphanedFiles) == 0 {
-		uc.logger.Info("삭제 대상 고아 netplan 파일이 없습니다")
+		uc.logger.Debug("삭제 대상 고아 netplan 파일이 없습니다")
 		return output, nil
 	}
 
 	uc.logger.WithFields(logrus.Fields{
+		"node_name": input.NodeName,
 		"orphaned_files": len(orphanedFiles),
-	}).Info("고아 netplan 파일 감지 완료")
+	}).Info("고아 netplan 파일 감지 완료 - 삭제 프로세스 시작")
 
 	// 2. 각 고아 netplan 파일 삭제 처리
 	for _, fileName := range orphanedFiles {
