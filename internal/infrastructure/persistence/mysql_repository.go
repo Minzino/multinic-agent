@@ -29,7 +29,7 @@ func NewMySQLRepository(db *sql.DB, logger *logrus.Logger) interfaces.NetworkInt
 // GetPendingInterfaces는 특정 노드의 설정 대기 중인 인터페이스들을 조회합니다
 func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
 	query := `
-		SELECT id, mac_address, attached_node_name, ip_address, 
+		SELECT id, macaddress, attached_node_name, ip_address, 
 		       subnet_mask, gateway, dns, vlan
 		FROM multi_interface
 		WHERE netplan_success = 0 
@@ -133,7 +133,7 @@ func (r *MySQLRepository) UpdateInterfaceStatus(ctx context.Context, interfaceID
 // GetInterfaceByID는 ID로 인터페이스를 조회합니다
 func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entities.NetworkInterface, error) {
 	query := `
-		SELECT id, mac_address, attached_node_name, ip_address,
+		SELECT id, macaddress, attached_node_name, ip_address,
 		       subnet_mask, gateway, dns, vlan, netplan_success
 		FROM multi_interface
 		WHERE id = ? AND deleted_at IS NULL
