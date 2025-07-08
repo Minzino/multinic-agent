@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 	
 	"multinic-agent-v2/internal/domain/entities"
 	domainErrors "multinic-agent-v2/internal/domain/errors"
@@ -98,6 +99,21 @@ func (m *MockFileSystem) Remove(path string) error {
 func (m *MockFileSystem) ListFiles(path string) ([]string, error) {
 	args := m.Called(path)
 	return args.Get(0).([]string), args.Error(1)
+}
+
+// MockCommandExecutor는 CommandExecutor 인터페이스의 목 구현체입니다
+type MockCommandExecutor struct {
+	mock.Mock
+}
+
+func (m *MockCommandExecutor) Execute(ctx context.Context, command string, args ...string) ([]byte, error) {
+	mockArgs := m.Called(ctx, command, args)
+	return mockArgs.Get(0).([]byte), mockArgs.Error(1)
+}
+
+func (m *MockCommandExecutor) ExecuteWithTimeout(ctx context.Context, timeout time.Duration, command string, args ...string) ([]byte, error) {
+	mockArgs := m.Called(ctx, timeout, command, args)
+	return mockArgs.Get(0).([]byte), mockArgs.Error(1)
 }
 
 func TestConfigureNetworkUseCase_Execute(t *testing.T) {
@@ -266,8 +282,11 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			// Mock 설정
 			tt.setupMocks(mockRepo, mockConfigurer, mockRollbacker, mockFS)
 			
+			// Mock CommandExecutor 생성
+			mockExecutor := new(MockCommandExecutor)
+			
 			// 네이밍 서비스 생성
-			namingService := services.NewInterfaceNamingService(mockFS)
+			namingService := services.NewInterfaceNamingService(mockFS, mockExecutor)
 			
 			// 로거 생성
 			logger := logrus.New()
