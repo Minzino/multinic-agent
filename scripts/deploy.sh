@@ -13,7 +13,7 @@ echo -e "${GREEN}🚀 MultiNIC Agent v2 완전 자동 배포 스크립트${NC}"
 
 # 변수 설정
 IMAGE_NAME=${IMAGE_NAME:-"multinic-agent"}
-IMAGE_TAG=${IMAGE_TAG:-"latest"}
+IMAGE_TAG=${IMAGE_TAG:-"0.5.0"}
 NAMESPACE=${NAMESPACE:-"default"}
 RELEASE_NAME=${RELEASE_NAME:-"multinic-agent"}
 SSH_PASSWORD=${SSH_PASSWORD:-"cloud1234"}
