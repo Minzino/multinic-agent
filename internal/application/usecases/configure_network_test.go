@@ -201,9 +201,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				})).Return(errors.New("설정 실패"))
 				
 				// 롤백 수행
-				rollbacker.On("Rollback", mock.Anything, mock.MatchedBy(func(name entities.InterfaceName) bool {
-					return name.String() == "multinic0"
-				})).Return(nil)
+				rollbacker.On("Rollback", mock.Anything, "multinic0").Return(nil)
 				
 				// 실패 상태로 업데이트
 				repo.On("UpdateInterfaceStatus", mock.Anything, 1, entities.StatusFailed).Return(nil)
@@ -244,9 +242,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				})).Return(errors.New("검증 실패"))
 				
 				// 롤백 수행
-				rollbacker.On("Rollback", mock.Anything, mock.MatchedBy(func(name entities.InterfaceName) bool {
-					return name.String() == "multinic0"
-				})).Return(nil)
+				rollbacker.On("Rollback", mock.Anything, "multinic0").Return(nil)
 				
 				// 실패 상태로 업데이트
 				repo.On("UpdateInterfaceStatus", mock.Anything, 1, entities.StatusFailed).Return(nil)
@@ -371,12 +367,13 @@ func TestConfigureNetworkUseCase_processInterface(t *testing.T) {
 			mockRollbacker := new(MockNetworkRollbacker)
 			mockFS := new(MockFileSystem)
 			mockRepo := new(MockNetworkInterfaceRepository)
+			mockExecutor := new(MockCommandExecutor)
 			
 			// Mock 설정
 			tt.setupMocks(mockConfigurer, mockRollbacker, mockFS)
 			
 			// 네이밍 서비스 생성
-			namingService := services.NewInterfaceNamingService(mockFS)
+			namingService := services.NewInterfaceNamingService(mockFS, mockExecutor)
 			
 			// 로거 생성
 			logger := logrus.New()

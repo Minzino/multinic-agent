@@ -3,9 +3,9 @@ package usecases
 import (
 	"context"
 	"fmt"
-	"multinic-agent-v2/internal/domain/entities"
 	"multinic-agent-v2/internal/domain/interfaces"
 	"multinic-agent-v2/internal/domain/services"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -57,52 +57,38 @@ func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetwork
 		Errors:            []error{},
 	}
 
-	// 1. 현재 시스템에 생성된 multinic 인터페이스 목록 조회
-	currentInterfaces := uc.namingService.GetCurrentMultinicInterfaces()
-	if len(currentInterfaces) == 0 {
-		uc.logger.Info("현재 시스템에 multinic 인터페이스가 없습니다")
-		return output, nil
-	}
-
-	uc.logger.WithFields(logrus.Fields{
-		"current_interfaces": len(currentInterfaces),
-	}).Info("현재 시스템의 multinic 인터페이스 확인 완료")
-
-	// 2. 데이터베이스에서 현재 노드의 활성 인터페이스 목록 조회
-	activeInterfaces, err := uc.repository.GetActiveInterfaces(ctx, input.NodeName)
+	// 1. 고아 netplan 설정 파일 정리
+	orphanedFiles, err := uc.findOrphanedNetplanFiles(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("활성 인터페이스 조회 실패: %w", err)
+		return nil, fmt.Errorf("고아 netplan 파일 조회 실패: %w", err)
 	}
 
-	uc.logger.WithFields(logrus.Fields{
-		"active_interfaces": len(activeInterfaces),
-	}).Info("데이터베이스에서 활성 인터페이스 조회 완료")
-
-	// 3. 현재 인터페이스와 DB 인터페이스 비교하여 고아 인터페이스 식별
-	orphanedInterfaces := uc.findOrphanedInterfaces(currentInterfaces, activeInterfaces)
-	if len(orphanedInterfaces) == 0 {
-		uc.logger.Info("삭제 대상 고아 인터페이스가 없습니다")
+	if len(orphanedFiles) == 0 {
+		uc.logger.Info("삭제 대상 고아 netplan 파일이 없습니다")
 		return output, nil
 	}
 
 	uc.logger.WithFields(logrus.Fields{
-		"orphaned_interfaces": len(orphanedInterfaces),
-	}).Info("고아 인터페이스 감지 완료")
+		"orphaned_files": len(orphanedFiles),
+	}).Info("고아 netplan 파일 감지 완료")
 
-	// 4. 각 고아 인터페이스 삭제 처리
-	for _, interfaceName := range orphanedInterfaces {
-		if err := uc.deleteInterface(ctx, interfaceName); err != nil {
+	// 2. 각 고아 netplan 파일 삭제 처리
+	for _, fileName := range orphanedFiles {
+		interfaceName := uc.extractInterfaceNameFromFile(fileName)
+		if err := uc.deleteNetplanFile(ctx, fileName, interfaceName); err != nil {
 			uc.logger.WithFields(logrus.Fields{
-				"interface_name": interfaceName.String(),
-				"error":          err.Error(),
-			}).Error("인터페이스 삭제 실패")
-			output.Errors = append(output.Errors, fmt.Errorf("인터페이스 %s 삭제 실패: %w", interfaceName.String(), err))
+				"file_name": fileName,
+				"interface_name": interfaceName,
+				"error": err.Error(),
+			}).Error("netplan 파일 삭제 실패")
+			output.Errors = append(output.Errors, fmt.Errorf("netplan 파일 %s 삭제 실패: %w", fileName, err))
 		} else {
-			output.DeletedInterfaces = append(output.DeletedInterfaces, interfaceName.String())
+			output.DeletedInterfaces = append(output.DeletedInterfaces, interfaceName)
 			output.TotalDeleted++
 			uc.logger.WithFields(logrus.Fields{
-				"interface_name": interfaceName.String(),
-			}).Info("인터페이스 삭제 완료")
+				"file_name": fileName,
+				"interface_name": interfaceName,
+			}).Info("고아 netplan 파일 삭제 완료")
 		}
 	}
 
@@ -114,56 +100,119 @@ func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetwork
 	return output, nil
 }
 
-// findOrphanedInterfaces는 현재 인터페이스와 DB 인터페이스를 비교하여 고아 인터페이스를 찾습니다
-func (uc *DeleteNetworkUseCase) findOrphanedInterfaces(
-	currentInterfaces []entities.InterfaceName,
-	activeInterfaces []entities.NetworkInterface,
-) []entities.InterfaceName {
-	// DB 인터페이스의 MAC 주소 맵 생성
-	activeMacs := make(map[string]bool)
-	for _, iface := range activeInterfaces {
-		activeMacs[iface.MacAddress] = true
+// findOrphanedNetplanFiles는 시스템에 존재하지 않지만 netplan 파일이 남아있는 고아 파일들을 찾습니다
+func (uc *DeleteNetworkUseCase) findOrphanedNetplanFiles(ctx context.Context) ([]string, error) {
+	var orphanedFiles []string
+	
+	// /etc/netplan 디렉토리에서 multinic 관련 파일 스캔
+	netplanDir := "/etc/netplan"
+	files, err := uc.namingService.ListNetplanFiles(netplanDir)
+	if err != nil {
+		return nil, fmt.Errorf("netplan 디렉토리 스캔 실패: %w", err)
 	}
-
-	var orphaned []entities.InterfaceName
-
-	// 현재 인터페이스 중 DB에 없는 MAC 주소를 가진 인터페이스 찾기
-	for _, currentInterface := range currentInterfaces {
-		macAddress, err := uc.namingService.GetMacAddressForInterface(currentInterface.String())
-		if err != nil {
-			uc.logger.WithFields(logrus.Fields{
-				"interface_name": currentInterface.String(),
-				"error":          err.Error(),
-			}).Warn("인터페이스 MAC 주소 조회 실패")
+	
+	for _, fileName := range files {
+		// multinic 파일만 처리 (9*-multinic*.yaml 패턴)
+		if !uc.isMultinicNetplanFile(fileName) {
 			continue
 		}
-
-		if !activeMacs[macAddress] {
+		
+		// 파일명에서 인터페이스 이름 추출
+		interfaceName := uc.extractInterfaceNameFromFile(fileName)
+		if interfaceName == "" {
+			uc.logger.WithField("file_name", fileName).Warn("인터페이스 이름 추출 실패")
+			continue
+		}
+		
+		// 해당 인터페이스가 실제 시스템에 존재하는지 확인
+		exists, err := uc.checkInterfaceExists(ctx, interfaceName)
+		if err != nil {
 			uc.logger.WithFields(logrus.Fields{
-				"interface_name": currentInterface.String(),
-				"mac_address":    macAddress,
-			}).Info("고아 인터페이스 발견")
-			orphaned = append(orphaned, currentInterface)
+				"interface_name": interfaceName,
+				"file_name": fileName,
+				"error": err.Error(),
+			}).Warn("인터페이스 존재 여부 확인 실패")
+			continue
+		}
+		
+		if !exists {
+			uc.logger.WithFields(logrus.Fields{
+				"file_name": fileName,
+				"interface_name": interfaceName,
+			}).Info("고아 netplan 파일 발견")
+			orphanedFiles = append(orphanedFiles, fileName)
 		}
 	}
-
-	return orphaned
+	
+	return orphanedFiles, nil
 }
 
-// deleteInterface는 특정 인터페이스를 삭제합니다
-func (uc *DeleteNetworkUseCase) deleteInterface(ctx context.Context, interfaceName entities.InterfaceName) error {
-	uc.logger.WithFields(logrus.Fields{
-		"interface_name": interfaceName.String(),
-	}).Info("인터페이스 삭제 시작")
+// isMultinicNetplanFile은 파일이 multinic 관련 netplan 파일인지 확인합니다
+func (uc *DeleteNetworkUseCase) isMultinicNetplanFile(fileName string) bool {
+	// 9*-multinic*.yaml 패턴 매칭
+	return strings.Contains(fileName, "multinic") && strings.HasSuffix(fileName, ".yaml") && 
+		   strings.HasPrefix(fileName, "9") && strings.Contains(fileName, "-")
+}
 
-	// 네트워크 인터페이스 롤백 (설정 제거)
-	if err := uc.rollbacker.Rollback(ctx, interfaceName.String()); err != nil {
-		return fmt.Errorf("네트워크 인터페이스 롤백 실패: %w", err)
+// extractInterfaceNameFromFile은 파일명에서 인터페이스 이름을 추출합니다
+func (uc *DeleteNetworkUseCase) extractInterfaceNameFromFile(fileName string) string {
+	// 예: "91-multinic1.yaml" -> "multinic1" 또는 "multinic1.yaml" -> "multinic1"
+	if !strings.Contains(fileName, "multinic") {
+		return ""
+	}
+	
+	// .yaml 확장자 제거
+	nameWithoutExt := strings.TrimSuffix(fileName, ".yaml")
+	
+	// "-"로 분할된 경우 (예: "91-multinic1")
+	parts := strings.Split(nameWithoutExt, "-")
+	for _, part := range parts {
+		if strings.HasPrefix(part, "multinic") {
+			return part
+		}
+	}
+	
+	// 분할되지 않은 경우 전체가 multinic로 시작하는지 확인 (예: "multinic1")
+	if strings.HasPrefix(nameWithoutExt, "multinic") {
+		return nameWithoutExt
+	}
+	
+	return ""
+}
+
+// checkInterfaceExists는 해당 인터페이스가 실제 시스템에 존재하는지 확인합니다
+func (uc *DeleteNetworkUseCase) checkInterfaceExists(ctx context.Context, interfaceName string) (bool, error) {
+	// ip addr show {interface} 명령으로 인터페이스 존재 여부 확인
+	_, err := uc.namingService.GetMacAddressForInterface(interfaceName)
+	if err != nil {
+		// 인터페이스가 존재하지 않으면 에러가 발생
+		if strings.Contains(err.Error(), "does not exist") || 
+		   strings.Contains(err.Error(), "정보 조회 실패") {
+			return false, nil
+		}
+		return false, err
+	}
+	
+	// MAC 주소를 성공적으로 조회했다면 인터페이스가 존재함
+	return true, nil
+}
+
+// deleteNetplanFile은 고아 netplan 파일을 삭제하고 netplan을 재적용합니다
+func (uc *DeleteNetworkUseCase) deleteNetplanFile(ctx context.Context, fileName, interfaceName string) error {
+	uc.logger.WithFields(logrus.Fields{
+		"file_name": fileName,
+		"interface_name": interfaceName,
+	}).Info("고아 netplan 파일 삭제 시작")
+
+	// Rollback 호출로 파일 삭제 및 netplan 재적용
+	if err := uc.rollbacker.Rollback(ctx, interfaceName); err != nil {
+		return fmt.Errorf("netplan 파일 롤백 실패: %w", err)
 	}
 
 	uc.logger.WithFields(logrus.Fields{
-		"interface_name": interfaceName.String(),
-	}).Info("인터페이스 삭제 성공")
+		"file_name": fileName,
+		"interface_name": interfaceName,
+	}).Info("고아 netplan 파일 삭제 성공")
 
 	return nil
 }

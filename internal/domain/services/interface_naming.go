@@ -80,3 +80,13 @@ func (s *InterfaceNamingService) GetMacAddressForInterface(interfaceName string)
 	
 	return matches[1], nil
 }
+
+// ListNetplanFiles는 지정된 디렉토리의 netplan 파일 목록을 반환합니다
+func (s *InterfaceNamingService) ListNetplanFiles(dir string) ([]string, error) {
+	files, err := s.fileSystem.ListFiles(dir)
+	if err != nil {
+		return nil, fmt.Errorf("디렉토리 %s 파일 목록 조회 실패: %w", dir, err)
+	}
+	
+	return files, nil
+}
