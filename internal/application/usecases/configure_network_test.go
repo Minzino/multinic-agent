@@ -60,24 +60,6 @@ func (m *MockNetworkRollbacker) Rollback(ctx context.Context, name entities.Inte
 	return args.Error(0)
 }
 
-type MockBackupService struct {
-	mock.Mock
-}
-
-func (m *MockBackupService) CreateBackup(ctx context.Context, interfaceName string, configPath string) error {
-	args := m.Called(ctx, interfaceName, configPath)
-	return args.Error(0)
-}
-
-func (m *MockBackupService) RestoreLatestBackup(ctx context.Context, interfaceName string) error {
-	args := m.Called(ctx, interfaceName)
-	return args.Error(0)
-}
-
-func (m *MockBackupService) HasBackup(ctx context.Context, interfaceName string) bool {
-	args := m.Called(ctx, interfaceName)
-	return args.Bool(0)
-}
 
 type MockFileSystem struct {
 	mock.Mock
@@ -117,7 +99,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 	tests := []struct {
 		name           string
 		input          ConfigureNetworkInput
-		setupMocks     func(*MockNetworkInterfaceRepository, *MockNetworkConfigurer, *MockNetworkRollbacker, *MockBackupService, *MockFileSystem)
+		setupMocks     func(*MockNetworkInterfaceRepository, *MockNetworkConfigurer, *MockNetworkRollbacker, *MockFileSystem)
 		expectedOutput *ConfigureNetworkOutput
 		wantError      bool
 	}{
@@ -126,7 +108,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			input: ConfigureNetworkInput{
 				NodeName: "test-node",
 			},
-			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, backup *MockBackupService, fs *MockFileSystem) {
+			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
 			},
 			expectedOutput: &ConfigureNetworkOutput{
@@ -141,7 +123,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			input: ConfigureNetworkInput{
 				NodeName: "test-node",
 			},
-			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, backup *MockBackupService, fs *MockFileSystem) {
+			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
 				testInterface := entities.NetworkInterface{
 					ID:               1,
 					MacAddress:       "00:11:22:33:44:55",
@@ -179,7 +161,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			input: ConfigureNetworkInput{
 				NodeName: "test-node",
 			},
-			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, backup *MockBackupService, fs *MockFileSystem) {
+			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
 				testInterface := entities.NetworkInterface{
 					ID:               1,
 					MacAddress:       "00:11:22:33:44:55",
@@ -217,7 +199,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			input: ConfigureNetworkInput{
 				NodeName: "test-node",
 			},
-			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, backup *MockBackupService, fs *MockFileSystem) {
+			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
 				testInterface := entities.NetworkInterface{
 					ID:               1,
 					MacAddress:       "00:11:22:33:44:55",
@@ -260,7 +242,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			input: ConfigureNetworkInput{
 				NodeName: "test-node",
 			},
-			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, backup *MockBackupService, fs *MockFileSystem) {
+			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, errors.New("DB 연결 실패"))
 			},
 			expectedOutput: nil,
@@ -274,11 +256,10 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			mockRepo := new(MockNetworkInterfaceRepository)
 			mockConfigurer := new(MockNetworkConfigurer)
 			mockRollbacker := new(MockNetworkRollbacker)
-			mockBackup := new(MockBackupService)
 			mockFS := new(MockFileSystem)
 			
 			// Mock 설정
-			tt.setupMocks(mockRepo, mockConfigurer, mockRollbacker, mockBackup, mockFS)
+			tt.setupMocks(mockRepo, mockConfigurer, mockRollbacker, mockFS)
 			
 			// 네이밍 서비스 생성
 			namingService := services.NewInterfaceNamingService(mockFS)
@@ -292,8 +273,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				mockRepo,
 				mockConfigurer,
 				mockRollbacker,
-				mockBackup,
-				namingService,
+								namingService,
 				logger,
 			)
 			
@@ -316,7 +296,6 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			mockRepo.AssertExpectations(t)
 			mockConfigurer.AssertExpectations(t)
 			mockRollbacker.AssertExpectations(t)
-			mockBackup.AssertExpectations(t)
 			mockFS.AssertExpectations(t)
 		})
 	}
@@ -366,7 +345,6 @@ func TestConfigureNetworkUseCase_processInterface(t *testing.T) {
 			// Mock 객체들 생성
 			mockConfigurer := new(MockNetworkConfigurer)
 			mockRollbacker := new(MockNetworkRollbacker)
-			mockBackup := new(MockBackupService)
 			mockFS := new(MockFileSystem)
 			mockRepo := new(MockNetworkInterfaceRepository)
 			
@@ -385,8 +363,7 @@ func TestConfigureNetworkUseCase_processInterface(t *testing.T) {
 				mockRepo,
 				mockConfigurer,
 				mockRollbacker,
-				mockBackup,
-				namingService,
+								namingService,
 				logger,
 			)
 			
@@ -409,7 +386,6 @@ func TestConfigureNetworkUseCase_processInterface(t *testing.T) {
 			// Mock 호출 검증
 			mockConfigurer.AssertExpectations(t)
 			mockRollbacker.AssertExpectations(t)
-			mockBackup.AssertExpectations(t)
 			mockFS.AssertExpectations(t)
 		})
 	}

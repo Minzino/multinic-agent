@@ -20,14 +20,3 @@ type NetworkRollbacker interface {
 	Rollback(ctx context.Context, name entities.InterfaceName) error
 }
 
-// BackupService는 설정 백업을 관리하는 인터페이스입니다
-type BackupService interface {
-	// CreateBackup은 현재 설정의 백업을 생성합니다
-	CreateBackup(ctx context.Context, interfaceName string, configPath string) error
-	
-	// RestoreLatestBackup은 가장 최근의 백업을 복원합니다
-	RestoreLatestBackup(ctx context.Context, interfaceName string) error
-	
-	// HasBackup은 백업이 존재하는지 확인합니다
-	HasBackup(ctx context.Context, interfaceName string) bool
-}
