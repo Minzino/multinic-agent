@@ -1,4 +1,4 @@
-ㄴ리가 안package usecases
+package usecases
 
 import (
 	"context"
