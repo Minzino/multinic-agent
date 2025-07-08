@@ -19,7 +19,6 @@ import (
 type NetplanAdapter struct {
 	commandExecutor interfaces.CommandExecutor
 	fileSystem      interfaces.FileSystem
-	backupService   interfaces.BackupService
 	logger          *logrus.Logger
 	configDir       string
 }
@@ -28,13 +27,11 @@ type NetplanAdapter struct {
 func NewNetplanAdapter(
 	executor interfaces.CommandExecutor,
 	fs interfaces.FileSystem,
-	backup interfaces.BackupService,
 	logger *logrus.Logger,
 ) *NetplanAdapter {
 	return &NetplanAdapter{
 		commandExecutor: executor,
 		fileSystem:      fs,
-		backupService:   backup,
 		logger:          logger,
 		configDir:       "/etc/netplan",
 	}
@@ -46,10 +43,7 @@ func (a *NetplanAdapter) Configure(ctx context.Context, iface entities.NetworkIn
 	index := extractInterfaceIndex(name.String())
 	configPath := filepath.Join(a.configDir, fmt.Sprintf("9%d-%s.yaml", index, name.String()))
 	
-	// 백업 생성 (기존 설정이 있는 경우)
-	if err := a.backupService.CreateBackup(ctx, name.String(), configPath); err != nil {
-		a.logger.WithError(err).Warn("백업 생성 실패, 계속 진행")
-	}
+	// 백업 로직 제거 - 기존 설정 파일이 있으면 덮어쓰기
 	
 	// Netplan 설정 생성
 	config := a.generateNetplanConfig(iface, name.String())
@@ -116,12 +110,7 @@ func (a *NetplanAdapter) Rollback(ctx context.Context, name entities.InterfaceNa
 		}
 	}
 	
-	// 백업이 있으면 복원
-	if a.backupService.HasBackup(ctx, name.String()) {
-		if err := a.backupService.RestoreLatestBackup(ctx, name.String()); err != nil {
-			a.logger.WithError(err).Warn("백업 복원 실패")
-		}
-	}
+	// 백업 복원 로직 제거 - 단순히 설정 파일만 제거
 	
 	// Netplan 재적용
 	if err := a.applyNetplan(ctx); err != nil {

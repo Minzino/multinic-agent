@@ -15,7 +15,6 @@ type ConfigureNetworkUseCase struct {
 	repository    interfaces.NetworkInterfaceRepository
 	configurer    interfaces.NetworkConfigurer
 	rollbacker    interfaces.NetworkRollbacker
-	backupService interfaces.BackupService
 	namingService *services.InterfaceNamingService
 	logger        *logrus.Logger
 }
@@ -25,7 +24,6 @@ func NewConfigureNetworkUseCase(
 	repo interfaces.NetworkInterfaceRepository,
 	configurer interfaces.NetworkConfigurer,
 	rollbacker interfaces.NetworkRollbacker,
-	backup interfaces.BackupService,
 	naming *services.InterfaceNamingService,
 	logger *logrus.Logger,
 ) *ConfigureNetworkUseCase {
@@ -33,7 +31,6 @@ func NewConfigureNetworkUseCase(
 		repository:    repo,
 		configurer:    configurer,
 		rollbacker:    rollbacker,
-		backupService: backup,
 		namingService: naming,
 		logger:        logger,
 	}

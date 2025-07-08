@@ -10,7 +10,6 @@ import (
 	"multinic-agent-v2/internal/infrastructure/health"
 	"multinic-agent-v2/internal/infrastructure/network"
 	"multinic-agent-v2/internal/infrastructure/persistence"
-	infrastructureServices "multinic-agent-v2/internal/infrastructure/services"
 	
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/sirupsen/logrus"
@@ -28,7 +27,6 @@ type Container struct {
 	osDetector      interfaces.OSDetector
 	
 	// 서비스들
-	backupService       interfaces.BackupService
 	healthService       *health.HealthService
 	namingService       *services.InterfaceNamingService
 	networkFactory      *network.NetworkManagerFactory
@@ -100,14 +98,6 @@ func (c *Container) initializeInfrastructure() error {
 
 // initializeServices는 서비스들을 초기화합니다
 func (c *Container) initializeServices() error {
-	// 백업 서비스
-	c.backupService = infrastructureServices.NewBackupService(
-		c.fileSystem,
-		c.clock,
-		c.logger,
-		c.config.Agent.BackupDirectory,
-	)
-	
 	// 헬스 서비스
 	c.healthService = health.NewHealthService(c.clock, c.logger)
 	
@@ -119,7 +109,6 @@ func (c *Container) initializeServices() error {
 		c.osDetector,
 		c.commandExecutor,
 		c.fileSystem,
-		c.backupService,
 		c.logger,
 	)
 	
@@ -145,7 +134,6 @@ func (c *Container) initializeUseCases() error {
 		c.networkRepository,
 		configurer,
 		rollbacker,
-		c.backupService,
 		c.namingService,
 		c.logger,
 	)
