@@ -34,24 +34,15 @@ func NewNetworkManager(logger *logrus.Logger) (NetworkManager, error) {
 
 // detectOS는 현재 시스템의 OS 타입을 감지
 func detectOS() OSType {
-	// Ubuntu 감지
-	if _, err := os.Stat("/etc/lsb-release"); err == nil {
-		content, err := os.ReadFile("/etc/lsb-release")
-		if err == nil && strings.Contains(string(content), "Ubuntu") {
+	// /etc/issue 파일로 OS 감지
+	if content, err := os.ReadFile("/etc/issue"); err == nil {
+		contentStr := strings.ToLower(string(content))
+		
+		if strings.Contains(contentStr, "ubuntu") {
 			return Ubuntu
 		}
-	}
-
-	// SUSE 감지
-	if _, err := os.Stat("/etc/suse-release"); err == nil {
-		return SUSE
-	}
-	if _, err := os.Stat("/etc/SUSE-brand"); err == nil {
-		return SUSE
-	}
-	if _, err := os.Stat("/etc/os-release"); err == nil {
-		content, err := os.ReadFile("/etc/os-release")
-		if err == nil && strings.Contains(string(content), "SUSE") {
+		
+		if strings.Contains(contentStr, "suse") {
 			return SUSE
 		}
 	}
