@@ -194,7 +194,7 @@ func TestInterfaceNamingService_isInterfaceInUse(t *testing.T) {
 	}
 }
 
-func TestInterfaceNamingService_GetCurrentMultinicInterfaces_ConfigurationBased(t *testing.T) {
+func TestInterfaceNamingService_GetCurrentMultinicInterfaces_SystemBased(t *testing.T) {
 	tests := []struct {
 		name           string
 		setupMock      func(*MockFileSystem)
@@ -202,39 +202,30 @@ func TestInterfaceNamingService_GetCurrentMultinicInterfaces_ConfigurationBased(
 		expectedNames  []string
 	}{
 		{
-			name: "Netplan 설정 파일 기반 인터페이스 감지",
+			name: "시스템에 multinic0과 multinic2가 존재하는 경우",
 			setupMock: func(mockFS *MockFileSystem) {
-				// multinic0과 multinic2의 Netplan 설정 파일이 존재
-				mockFS.On("Exists", "/etc/netplan/90-multinic0.yaml").Return(true)
-				mockFS.On("Exists", "/etc/sysconfig/network/ifcfg-multinic0").Return(false)
+				// multinic0과 multinic2가 시스템에 존재
+				mockFS.On("Exists", "/sys/class/net/multinic0").Return(true)
+				mockFS.On("Exists", "/sys/class/net/multinic1").Return(false)
+				mockFS.On("Exists", "/sys/class/net/multinic2").Return(true)
 				
-				mockFS.On("Exists", "/etc/netplan/91-multinic1.yaml").Return(false)
-				mockFS.On("Exists", "/etc/sysconfig/network/ifcfg-multinic1").Return(false)
-				
-				mockFS.On("Exists", "/etc/netplan/92-multinic2.yaml").Return(true)
-				mockFS.On("Exists", "/etc/sysconfig/network/ifcfg-multinic2").Return(false)
-				
-				// 나머지 인터페이스들은 설정 파일이 없음
+				// 나머지 인터페이스들은 존재하지 않음
 				for i := 3; i < 10; i++ {
-					mockFS.On("Exists", fmt.Sprintf("/etc/netplan/9%d-multinic%d.yaml", i, i)).Return(false)
-					mockFS.On("Exists", fmt.Sprintf("/etc/sysconfig/network/ifcfg-multinic%d", i)).Return(false)
+					mockFS.On("Exists", fmt.Sprintf("/sys/class/net/multinic%d", i)).Return(false)
 				}
 			},
 			expectedCount: 2,
 			expectedNames: []string{"multinic0", "multinic2"},
 		},
 		{
-			name: "Wicked 설정 파일 기반 인터페이스 감지",
+			name: "시스템에 multinic1만 존재하는 경우",
 			setupMock: func(mockFS *MockFileSystem) {
-				// multinic1의 Wicked 설정 파일이 존재
-				mockFS.On("Exists", "/etc/netplan/91-multinic1.yaml").Return(false)
-				mockFS.On("Exists", "/etc/sysconfig/network/ifcfg-multinic1").Return(true)
-				
-				// 나머지 인터페이스들은 설정 파일이 없음
+				// multinic1만 시스템에 존재
 				for i := 0; i < 10; i++ {
-					if i != 1 {
-						mockFS.On("Exists", fmt.Sprintf("/etc/netplan/9%d-multinic%d.yaml", i, i)).Return(false)
-						mockFS.On("Exists", fmt.Sprintf("/etc/sysconfig/network/ifcfg-multinic%d", i)).Return(false)
+					if i == 1 {
+						mockFS.On("Exists", fmt.Sprintf("/sys/class/net/multinic%d", i)).Return(true)
+					} else {
+						mockFS.On("Exists", fmt.Sprintf("/sys/class/net/multinic%d", i)).Return(false)
 					}
 				}
 			},
@@ -242,12 +233,11 @@ func TestInterfaceNamingService_GetCurrentMultinicInterfaces_ConfigurationBased(
 			expectedNames: []string{"multinic1"},
 		},
 		{
-			name: "설정 파일이 없는 경우",
+			name: "시스템에 multinic 인터페이스가 없는 경우",
 			setupMock: func(mockFS *MockFileSystem) {
-				// 모든 설정 파일이 존재하지 않음
+				// 모든 multinic 인터페이스가 시스템에 존재하지 않음
 				for i := 0; i < 10; i++ {
-					mockFS.On("Exists", fmt.Sprintf("/etc/netplan/9%d-multinic%d.yaml", i, i)).Return(false)
-					mockFS.On("Exists", fmt.Sprintf("/etc/sysconfig/network/ifcfg-multinic%d", i)).Return(false)
+					mockFS.On("Exists", fmt.Sprintf("/sys/class/net/multinic%d", i)).Return(false)
 				}
 			},
 			expectedCount: 0,
