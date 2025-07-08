@@ -5,57 +5,56 @@ import (
 	"errors"
 	"testing"
 
-	"multinic-agent-v2/internal/domain/entities"
 	"multinic-agent-v2/internal/domain/services"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
-func TestDeleteNetworkUseCase_Execute_Success(t *testing.T) {
+func TestDeleteNetworkUseCase_Execute_NetplanFileCleanup_Success(t *testing.T) {
 	// Arrange
 	mockRepo := new(MockNetworkInterfaceRepository)
 	mockRollbacker := new(MockNetworkRollbacker)
 	mockFileSystem := new(MockFileSystem)
+	mockExecutor := new(MockCommandExecutor)
 	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel) // 테스트 중 로그 출력 억제
 
-	namingService := services.NewInterfaceNamingService(mockFileSystem)
+	namingService := services.NewInterfaceNamingService(mockFileSystem, mockExecutor)
 	useCase := NewDeleteNetworkUseCase(mockRepo, mockRollbacker, namingService, logger)
 
 	ctx := context.Background()
 	input := DeleteNetworkInput{NodeName: "test-node"}
 
-	// 현재 시스템의 multinic 인터페이스 시뮬레이션
-	mockFileSystem.On("Exists", "/sys/class/net/multinic0").Return(true)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic1").Return(true)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic2").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic3").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic4").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic5").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic6").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic7").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic8").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic9").Return(false)
-
-	// DB에서 활성 인터페이스 조회 (multinic1만 DB에 있음)
-	activeInterfaces := []entities.NetworkInterface{
-		{
-			ID:               1,
-			MacAddress:       "00:11:22:33:44:55",
-			AttachedNodeName: "test-node",
-			Status:           entities.StatusConfigured,
-		},
+	// 1. /etc/netplan 디렉토리에 고아 파일들이 있음
+	netplanFiles := []string{
+		"50-cloud-init.yaml",    // 무시됨 (multinic 관련 아님)
+		"91-multinic1.yaml",     // multinic1 - 시스템에 존재
+		"92-multinic2.yaml",     // multinic2 - 시스템에 존재하지 않음 (고아 파일)
 	}
-	mockRepo.On("GetActiveInterfaces", ctx, "test-node").Return(activeInterfaces, nil)
+	mockFileSystem.On("ListFiles", "/etc/netplan").Return(netplanFiles, nil)
 
-	// MAC 주소 조회
-	mockFileSystem.On("Exists", "/sys/class/net/multinic0/address").Return(true)
-	mockFileSystem.On("ReadFile", "/sys/class/net/multinic0/address").Return([]byte("aa:bb:cc:dd:ee:ff\n"), nil)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic1/address").Return(true)
-	mockFileSystem.On("ReadFile", "/sys/class/net/multinic1/address").Return([]byte("00:11:22:33:44:55\n"), nil)
+	// 2. multinic1은 시스템에 존재 (MAC 주소 조회 성공)
+	mockExecutor.On("ExecuteWithTimeout", 
+		mock.AnythingOfType("*context.timerCtx"), 
+		mock.AnythingOfType("time.Duration"), 
+		"ip", 
+		[]string{"addr", "show", "multinic1"}).Return([]byte(`
+2: multinic1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc fq_codel state UP group default qlen 1000
+    link/ether fa:16:3e:12:2a:03 brd ff:ff:ff:ff:ff:ff
+    inet6 fe80::f816:3eff:fe12:2a03/64 scope link
+       valid_lft forever preferred_lft forever`), nil)
 
-	// 롤백 실행 (multinic0만 삭제됨)
-	mockRollbacker.On("Rollback", ctx, "multinic0").Return(nil)
+	// 3. multinic2는 시스템에 존재하지 않음 (에러 발생)
+	mockExecutor.On("ExecuteWithTimeout", 
+		mock.AnythingOfType("*context.timerCtx"), 
+		mock.AnythingOfType("time.Duration"), 
+		"ip", 
+		[]string{"addr", "show", "multinic2"}).Return([]byte(""), errors.New("Device \"multinic2\" does not exist"))
+
+	// 4. multinic2의 고아 파일 삭제 (롤백 호출)
+	mockRollbacker.On("Rollback", ctx, "multinic2").Return(nil)
 
 	// Act
 	output, err := useCase.Execute(ctx, input)
@@ -64,42 +63,35 @@ func TestDeleteNetworkUseCase_Execute_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, output)
 	assert.Equal(t, 1, output.TotalDeleted)
-	assert.Equal(t, []string{"multinic0"}, output.DeletedInterfaces)
+	assert.Equal(t, []string{"multinic2"}, output.DeletedInterfaces)
 	assert.Empty(t, output.Errors)
 
-	mockRepo.AssertExpectations(t)
-	mockRollbacker.AssertExpectations(t)
+	// Mock 검증
 	mockFileSystem.AssertExpectations(t)
+	mockExecutor.AssertExpectations(t)
+	mockRollbacker.AssertExpectations(t)
 }
 
-func TestDeleteNetworkUseCase_Execute_NoOrphanedInterfaces(t *testing.T) {
+func TestDeleteNetworkUseCase_Execute_NoOrphanedFiles(t *testing.T) {
 	// Arrange
 	mockRepo := new(MockNetworkInterfaceRepository)
 	mockRollbacker := new(MockNetworkRollbacker)
 	mockFileSystem := new(MockFileSystem)
+	mockExecutor := new(MockCommandExecutor)
 	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
 
-	namingService := services.NewInterfaceNamingService(mockFileSystem)
+	namingService := services.NewInterfaceNamingService(mockFileSystem, mockExecutor)
 	useCase := NewDeleteNetworkUseCase(mockRepo, mockRollbacker, namingService, logger)
 
 	ctx := context.Background()
 	input := DeleteNetworkInput{NodeName: "test-node"}
 
-	// 현재 시스템에 multinic 인터페이스 없음
-	mockFileSystem.On("Exists", "/sys/class/net/multinic0").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic1").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic2").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic3").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic4").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic5").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic6").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic7").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic8").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic9").Return(false)
-
-	// DB에서 활성 인터페이스 조회
-	activeInterfaces := []entities.NetworkInterface{}
-	mockRepo.On("GetActiveInterfaces", ctx, "test-node").Return(activeInterfaces, nil)
+	// 1. /etc/netplan 디렉토리에 multinic 파일이 없음
+	netplanFiles := []string{
+		"50-cloud-init.yaml",    // multinic 관련 아님
+	}
+	mockFileSystem.On("ListFiles", "/etc/netplan").Return(netplanFiles, nil)
 
 	// Act
 	output, err := useCase.Execute(ctx, input)
@@ -111,85 +103,38 @@ func TestDeleteNetworkUseCase_Execute_NoOrphanedInterfaces(t *testing.T) {
 	assert.Empty(t, output.DeletedInterfaces)
 	assert.Empty(t, output.Errors)
 
-	mockRepo.AssertExpectations(t)
+	// Mock 검증
 	mockFileSystem.AssertExpectations(t)
 }
 
-func TestDeleteNetworkUseCase_Execute_RepositoryError(t *testing.T) {
+func TestDeleteNetworkUseCase_Execute_RollbackFailure(t *testing.T) {
 	// Arrange
 	mockRepo := new(MockNetworkInterfaceRepository)
 	mockRollbacker := new(MockNetworkRollbacker)
 	mockFileSystem := new(MockFileSystem)
+	mockExecutor := new(MockCommandExecutor)
 	logger := logrus.New()
+	logger.SetLevel(logrus.FatalLevel)
 
-	namingService := services.NewInterfaceNamingService(mockFileSystem)
+	namingService := services.NewInterfaceNamingService(mockFileSystem, mockExecutor)
 	useCase := NewDeleteNetworkUseCase(mockRepo, mockRollbacker, namingService, logger)
 
 	ctx := context.Background()
 	input := DeleteNetworkInput{NodeName: "test-node"}
 
-	// 현재 시스템의 multinic 인터페이스 시뮬레이션
-	mockFileSystem.On("Exists", "/sys/class/net/multinic0").Return(true)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic1").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic2").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic3").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic4").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic5").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic6").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic7").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic8").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic9").Return(false)
+	// 1. 고아 netplan 파일 존재
+	netplanFiles := []string{"92-multinic2.yaml"}
+	mockFileSystem.On("ListFiles", "/etc/netplan").Return(netplanFiles, nil)
 
-	// DB 조회 실패
-	mockRepo.On("GetActiveInterfaces", ctx, "test-node").Return([]entities.NetworkInterface(nil), errors.New("database error"))
+	// 2. multinic2는 시스템에 존재하지 않음
+	mockExecutor.On("ExecuteWithTimeout", 
+		mock.AnythingOfType("*context.timerCtx"), 
+		mock.AnythingOfType("time.Duration"), 
+		"ip", 
+		[]string{"addr", "show", "multinic2"}).Return([]byte(""), errors.New("Device \"multinic2\" does not exist"))
 
-	// Act
-	output, err := useCase.Execute(ctx, input)
-
-	// Assert
-	assert.Error(t, err)
-	assert.Nil(t, output)
-	assert.Contains(t, err.Error(), "활성 인터페이스 조회 실패")
-
-	mockRepo.AssertExpectations(t)
-	mockFileSystem.AssertExpectations(t)
-}
-
-func TestDeleteNetworkUseCase_Execute_RollbackError(t *testing.T) {
-	// Arrange
-	mockRepo := new(MockNetworkInterfaceRepository)
-	mockRollbacker := new(MockNetworkRollbacker)
-	mockFileSystem := new(MockFileSystem)
-	logger := logrus.New()
-
-	namingService := services.NewInterfaceNamingService(mockFileSystem)
-	useCase := NewDeleteNetworkUseCase(mockRepo, mockRollbacker, namingService, logger)
-
-	ctx := context.Background()
-	input := DeleteNetworkInput{NodeName: "test-node"}
-
-	// 현재 시스템의 multinic 인터페이스 시뮬레이션
-	mockFileSystem.On("Exists", "/sys/class/net/multinic0").Return(true)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic1").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic2").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic3").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic4").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic5").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic6").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic7").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic8").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic9").Return(false)
-
-	// DB에서 활성 인터페이스 조회 (빈 결과 - multinic0는 고아)
-	activeInterfaces := []entities.NetworkInterface{}
-	mockRepo.On("GetActiveInterfaces", ctx, "test-node").Return(activeInterfaces, nil)
-
-	// MAC 주소 조회
-	mockFileSystem.On("Exists", "/sys/class/net/multinic0/address").Return(true)
-	mockFileSystem.On("ReadFile", "/sys/class/net/multinic0/address").Return([]byte("aa:bb:cc:dd:ee:ff\n"), nil)
-
-	// 롤백 실패
-	mockRollbacker.On("Rollback", ctx, "multinic0").Return(errors.New("rollback failed"))
+	// 3. 롤백 실패
+	mockRollbacker.On("Rollback", ctx, "multinic2").Return(errors.New("rollback failed"))
 
 	// Act
 	output, err := useCase.Execute(ctx, input)
@@ -200,55 +145,59 @@ func TestDeleteNetworkUseCase_Execute_RollbackError(t *testing.T) {
 	assert.Equal(t, 0, output.TotalDeleted)
 	assert.Empty(t, output.DeletedInterfaces)
 	assert.Len(t, output.Errors, 1)
-	assert.Contains(t, output.Errors[0].Error(), "multinic0 삭제 실패")
+	assert.Contains(t, output.Errors[0].Error(), "rollback failed")
 
-	mockRepo.AssertExpectations(t)
-	mockRollbacker.AssertExpectations(t)
+	// Mock 검증
 	mockFileSystem.AssertExpectations(t)
+	mockExecutor.AssertExpectations(t)
+	mockRollbacker.AssertExpectations(t)
 }
 
-func TestDeleteNetworkUseCase_Execute_MacAddressReadError(t *testing.T) {
-	// Arrange
-	mockRepo := new(MockNetworkInterfaceRepository)
-	mockRollbacker := new(MockNetworkRollbacker)
-	mockFileSystem := new(MockFileSystem)
-	logger := logrus.New()
+func TestDeleteNetworkUseCase_ExtractInterfaceNameFromFile(t *testing.T) {
+	useCase := &DeleteNetworkUseCase{}
 
-	namingService := services.NewInterfaceNamingService(mockFileSystem)
-	useCase := NewDeleteNetworkUseCase(mockRepo, mockRollbacker, namingService, logger)
+	tests := []struct {
+		fileName     string
+		expectedName string
+	}{
+		{"91-multinic1.yaml", "multinic1"},
+		{"92-multinic2.yaml", "multinic2"},
+		{"90-multinic0.yaml", "multinic0"},
+		{"99-multinic9.yaml", "multinic9"},
+		{"50-cloud-init.yaml", ""},
+		{"invalid.yaml", ""},
+		{"multinic1.yaml", "multinic1"},
+	}
 
-	ctx := context.Background()
-	input := DeleteNetworkInput{NodeName: "test-node"}
+	for _, tt := range tests {
+		t.Run(tt.fileName, func(t *testing.T) {
+			result := useCase.extractInterfaceNameFromFile(tt.fileName)
+			assert.Equal(t, tt.expectedName, result)
+		})
+	}
+}
 
-	// 현재 시스템의 multinic 인터페이스 시뮬레이션
-	mockFileSystem.On("Exists", "/sys/class/net/multinic0").Return(true)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic1").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic2").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic3").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic4").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic5").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic6").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic7").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic8").Return(false)
-	mockFileSystem.On("Exists", "/sys/class/net/multinic9").Return(false)
+func TestDeleteNetworkUseCase_IsMultinicNetplanFile(t *testing.T) {
+	useCase := &DeleteNetworkUseCase{}
 
-	// DB에서 활성 인터페이스 조회
-	activeInterfaces := []entities.NetworkInterface{}
-	mockRepo.On("GetActiveInterfaces", ctx, "test-node").Return(activeInterfaces, nil)
+	tests := []struct {
+		fileName string
+		expected bool
+	}{
+		{"91-multinic1.yaml", true},
+		{"92-multinic2.yaml", true},
+		{"90-multinic0.yaml", true},
+		{"99-multinic9.yaml", true},
+		{"50-cloud-init.yaml", false},
+		{"multinic1.yaml", false}, // 9로 시작하지 않음
+		{"91-multinic1.txt", false}, // yaml이 아님
+		{"invalid.yaml", false},
+	}
 
-	// MAC 주소 파일이 존재하지 않음
-	mockFileSystem.On("Exists", "/sys/class/net/multinic0/address").Return(false)
-
-	// Act
-	output, err := useCase.Execute(ctx, input)
-
-	// Assert
-	assert.NoError(t, err)
-	assert.NotNil(t, output)
-	assert.Equal(t, 0, output.TotalDeleted) // MAC 주소 읽기 실패로 삭제되지 않음
-	assert.Empty(t, output.DeletedInterfaces)
-	assert.Empty(t, output.Errors)
-
-	mockRepo.AssertExpectations(t)
-	mockFileSystem.AssertExpectations(t)
+	for _, tt := range tests {
+		t.Run(tt.fileName, func(t *testing.T) {
+			result := useCase.isMultinicNetplanFile(tt.fileName)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
