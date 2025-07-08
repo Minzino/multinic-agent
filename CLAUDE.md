@@ -384,3 +384,24 @@ type NetworkManager interface {
 2. **성능 최적화**: 폴링 주기 동적 조정, 배치 처리 최적화
 3. **모니터링 강화**: Prometheus 메트릭, OpenTelemetry 추적 도입
 4. **기능 확장**: IPv6 지원, 고급 네트워크 설정 옵션
+
+## 배포 스크립트 개선 사항 (2025-01-08)
+
+### 개선 내용
+1. **전체 노드 지원**: 워커 노드만이 아닌 모든 노드에 이미지 배포
+   - 기존: 하드코딩된 워커 노드 목록 (viola2-biz-worker01, worker02, worker03)
+   - 개선: `kubectl get nodes`를 통한 동적 노드 목록 가져오기
+   
+2. **변경 사항**
+   ```bash
+   # 기존
+   WORKER_NODES=(viola2-biz-worker01 viola2-biz-worker02 viola2-biz-worker03)
+   
+   # 개선
+   ALL_NODES=($(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'))
+   ```
+
+3. **영향 범위**
+   - DaemonSet이 모든 노드에서 실행되도록 설계되어 있으므로, 이미지도 모든 노드에 배포되어야 함
+   - OpenStack multi-interface 관리를 위해 컨트롤 플레인 노드에서도 실행 필요
+   - 노드 추가/제거 시 자동으로 반영되어 유지보수성 향상
