@@ -215,7 +215,7 @@ func (uc *ConfigureNetworkUseCase) syncConfiguredInterfaces(ctx context.Context,
 		}
 
 		// Extract info from parsed data
-		var fileMAC, fileAddress string
+		var fileMAC, fileAddress, fileCIDR string
 		var fileMTU int
 		var interfaceName string
 
@@ -223,12 +223,15 @@ func (uc *ConfigureNetworkUseCase) syncConfiguredInterfaces(ctx context.Context,
 			interfaceName = name
 			fileMAC = eth.Match.MACAddress
 			if len(eth.Addresses) > 0 {
-				// 주소에서 CIDR 접미사 제거
-				ip, _, err := net.ParseCIDR(eth.Addresses[0])
+				// Parse the full CIDR from the file
+				_, ipNet, err := net.ParseCIDR(eth.Addresses[0])
 				if err == nil {
-					fileAddress = ip.String()
+					fileAddress = ipNet.IP.String() // Get just the IP part
+					fileCIDR = ipNet.String()       // Get the full CIDR string (e.g., "1.1.1.0/24")
 				} else {
-					fileAddress = eth.Addresses[0] // 파싱 실패 시 원본 사용
+					// If parsing fails, use the raw address and an empty CIDR
+					fileAddress = eth.Addresses[0]
+					fileCIDR = "" // Or some default/error value
 				}
 			}
 			fileMTU = eth.MTU
@@ -247,20 +250,24 @@ func (uc *ConfigureNetworkUseCase) syncConfiguredInterfaces(ctx context.Context,
 			continue
 		}
 
-		// Check for drift
-		isDrifted := (dbIface.Address != fileAddress) || (dbIface.MTU != fileMTU)
+		// Check for drift - now includes CIDR
+		isDrifted := (dbIface.Address != fileAddress) ||
+			(dbIface.CIDR != fileCIDR) ||
+			(dbIface.MTU != fileMTU)
 
 		if isDrifted {
 			uc.logger.WithFields(logrus.Fields{
 				"interface":    interfaceName,
 				"db_address":   dbIface.Address,
 				"file_address": fileAddress,
+				"db_cidr":      dbIface.CIDR,
+				"file_cidr":    fileCIDR,
 				"db_mtu":       dbIface.MTU,
 				"file_mtu":     fileMTU,
 			}).Info("설정 변경 감지. 동기화를 시작합니다.")
 
 			ifaceName, err := entities.NewInterfaceName(interfaceName)
-		if err != nil {
+			if err != nil {
 				uc.logger.WithError(err).Error("잘못된 인터페이스 이름")
 				continue
 			}
