@@ -38,3 +38,26 @@
 - 테스트 통과 확인.
 - `GEMINI.md`에 상세 작업 내용 기록.
 - Git 저장소에 변경 사항 푸시 준비 완료.
+
+### RHEL/nmcli 기능 검증 (2025-07-09)
+
+**1. 검증 목표:**
+- 이전 작업에서 SUSE로 오인했던 RHEL 9.4 환경에 대해 `nmcli`를 사용하도록 수정한 기능이 올바르게 구현되었는지 최종 검증.
+- 원격 서버(`suse-biz-worker1`)에 직접 접속하여 코드의 명령어와 실제 서버 환경의 일치 여부 확인.
+
+**2. 검증 절차 및 결과:**
+- **OS 재확인**: `cat /etc/os-release` 명령을 통해 대상 서버가 **RHEL 9.4**임을 재차 확인함. 에이전트의 OS 감지 로직(`ID="rhel"`)이 올바르게 동작할 것을 확신.
+- **`nmcli` 도구 확인**: `nmcli --version` (1.46.0) 명령으로 `nmcli`가 설치되어 있고, `systemctl is-active NetworkManager` 명령으로 서비스가 활성화 상태임을 확인함.
+- **코드-서버 간 명령어 일치 확인**:
+  - `internal/infrastructure/network/rhel_adapter.go`에 구현된 핵심 `nmcli` 명령어들을 분석.
+    - **설정**: `nmcli connection add type ethernet con-name {name} ifname {name} mac {mac}`
+    - **IP 비활성화**: `nmcli connection modify {name} ipv4.method disabled`
+    - **활성화**: `nmcli connection up {name}`
+    - **검증**: `nmcli device status`
+    - **롤백**: `nmcli connection down {name}` 및 `nmcli connection delete {name}`
+  - `nmcli device status`의 실제 출력 형식을 확인한 결과, 코드 내 파싱 로직(`strings.Fields`로 분리 후 3번째 필드 확인)이 문제없이 동작할 것을 확인함.
+
+**3. 최종 결론:**
+- **코드 변경 불필요**: 현재 `RHELAdapter`의 구현은 대상 서버 환경과 완벽하게 일치하며, 추가적인 코드 수정은 필요하지 않음.
+- 이전 작업(SUSE 오인 수정 및 RHEL 지원 추가)이 성공적으로 완료되었음을 최종 확인.
+- `GEMINI.md`에 검증 내용 기록 완료.
