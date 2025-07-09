@@ -150,7 +150,6 @@ func (a *NetplanAdapter) applyNetplan(ctx context.Context) error {
 // generateNetplanConfig는 Netplan 설정을 생성합니다
 func (a *NetplanAdapter) generateNetplanConfig(iface entities.NetworkInterface, interfaceName string) map[string]interface{} {
 	ethernetConfig := map[string]interface{}{
-		"dhcp4": false,
 		"match": map[string]interface{}{
 			"macaddress": iface.MacAddress,
 		},
@@ -159,6 +158,7 @@ func (a *NetplanAdapter) generateNetplanConfig(iface entities.NetworkInterface, 
 
 	// address와 mtu는 항상 함께 설정
 	if iface.Address != "" && iface.MTU > 0 {
+		ethernetConfig["dhcp4"] = false
 		ethernetConfig["addresses"] = []string{iface.Address}
 		ethernetConfig["mtu"] = iface.MTU
 	}
