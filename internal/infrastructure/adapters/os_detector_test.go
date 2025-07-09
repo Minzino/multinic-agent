@@ -56,7 +56,7 @@ func TestDetectOS_Ubuntu_Simple(t *testing.T) {
 
 	// 모의 설정: /etc/os-release 파일만 읽도록 설정
 	osReleaseContent := "NAME=Ubuntu\nID=ubuntu"
-	mockFS.On("ReadFile", "/etc/os-release").Return([]byte(osReleaseContent), nil).Once()
+	mockFS.On("ReadFile", "/host/etc/os-release").Return([]byte(osReleaseContent), nil).Once()
 
 	// 테스트 실행
 	osType, err := detector.DetectOS()
@@ -108,7 +108,7 @@ func TestRealOSDetector_DetectOS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockFS := new(MockFileSystemForOSDetector)
 
-			mockFS.On("ReadFile", "/etc/os-release").Return([]byte(tt.osReleaseContent), tt.osReleaseError).Once()
+			mockFS.On("ReadFile", "/host/etc/os-release").Return([]byte(tt.osReleaseContent), tt.osReleaseError).Once()
 
 			detector := NewRealOSDetector(mockFS)
 			result, err := detector.DetectOS()
