@@ -54,4 +54,5 @@ type OSType string
 const (
 	OSTypeUbuntu OSType = "ubuntu"
 	OSTypeSUSE   OSType = "suse"
+	OSTypeRHEL   OSType = "rhel"
 )

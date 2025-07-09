@@ -48,10 +48,13 @@ func (f *NetworkManagerFactory) CreateNetworkConfigurer() (interfaces.NetworkCon
 		), nil
 
 	case interfaces.OSTypeSUSE:
-		// SUSE 9.4 (ifup/down) 레거시 어댑터
-		return NewSuseLegacyAdapter(
+		// SUSE 어댑터가 필요하다면 여기에 구현을 추가합니다.
+		// 현재는 RHEL/Ubuntu에 집중합니다.
+		return nil, errors.NewSystemError("SUSE 어댑터는 현재 구현되지 않았습니다", nil)
+
+	case interfaces.OSTypeRHEL:
+		return NewRHELAdapter(
 			f.commandExecutor,
-			f.fileSystem,
 			f.logger,
 		), nil
 

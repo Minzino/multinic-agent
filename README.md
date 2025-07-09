@@ -12,7 +12,7 @@ MultiNIC 네트워크 설정 관리를 위한 Kubernetes DaemonSet 에이전트
 - **버전**: 0.6.0 (**NEW**: 인터페이스 삭제 기능 추가)
 - **Go 버전**: 1.21+
 - **Kubernetes**: 1.20+
-- **지원 OS**: Ubuntu 18.04+, SUSE Linux 9.4
+- **지원 OS**: Ubuntu 18.04+, Red Hat Enterprise Linux 9+ (및 Rocky, Alma, SUSE Liberty 등 호환 OS)
 
 ## 주요 기능
 
