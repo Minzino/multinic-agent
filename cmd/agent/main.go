@@ -20,17 +20,25 @@ func main() {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
+	// LOG_LEVEL 환경 변수 설정
+	logLevelStr := os.Getenv("LOG_LEVEL")
+	if logLevelStr != "" {
+		logLevel, err := logrus.ParseLevel(logLevelStr)
+		if err != nil {
+			logger.WithError(err).Warnf("알 수 없는 LOG_LEVEL 값: %s. 기본 Info 레벨을 사용합니다.", logLevelStr)
+			logger.SetLevel(logrus.InfoLevel) // Fallback to Info
+		} else {
+			logger.SetLevel(logLevel)
+		}
+	} else {
+		logger.SetLevel(logrus.InfoLevel) // Default to Info if not set
+	}
+
 	// 설정 로드
 	configLoader := config.NewEnvironmentConfigLoader()
 	cfg, err := configLoader.Load()
 	if err != nil {
 		logger.WithError(err).Fatal("설정 로드 실패")
-	}
-
-	// 의존성 컨테이너 초기화
-	appContainer, err := container.NewContainer(cfg, logger)
-	if err != nil {
-		logger.WithError(err).Fatal("컨테이너 초기화 실패")
 	}
 	defer func() {
 		if err := appContainer.Close(); err != nil {
