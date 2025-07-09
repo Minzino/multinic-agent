@@ -208,7 +208,7 @@ for node in "${ALL_NODES[@]}"; do
 
         # 감지된 런타임으로 이미지 로드
         LOAD_COMMAND="${REMOTE_CLI} load -i /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar && rm /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar"
-        if sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no $node "${LOAD_COMMAND}" 2>/dev/null; then
+        if sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no $node "${LOAD_COMMAND}"; then
             echo -e "${GREEN}✓ $node 노드 완료${NC}"
         else
             echo -e "${YELLOW}⚠️  $node 노드 이미지 로드 실패 (계속 진행)${NC}"
