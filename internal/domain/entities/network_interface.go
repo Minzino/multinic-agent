@@ -11,6 +11,8 @@ type NetworkInterface struct {
 	MacAddress       string
 	AttachedNodeName string
 	Status           InterfaceStatus
+	Address          string // IP 주소 (e.g., "192.168.1.10/24")
+	MTU              int    // MTU 값
 }
 
 // InterfaceStatus는 인터페이스의 상태를 나타냅니다
