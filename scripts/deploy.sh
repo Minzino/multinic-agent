@@ -236,7 +236,7 @@ fi
     --set image.repository=docker.io/library/$IMAGE_NAME \
     --set image.tag=$IMAGE_TAG \
     --set image.pullPolicy=Never \
-    --wait --timeout=5m; then
+    --wait --timeout=5m --debug; then
     echo -e "${GREEN}✓ MultiNIC Agent 배포 완료${NC}"
 else
     echo -e "${RED}✗ MultiNIC Agent 배포 실패${NC}"
