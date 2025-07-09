@@ -198,7 +198,17 @@ for node in "${ALL_NODES[@]}"; do
     
     if sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no ${IMAGE_NAME}-${IMAGE_TAG}.tar $node:/tmp/ 2>/dev/null; then
         echo -e "${YELLOW}🔧 $node 노드에 이미지 로드 중...${NC}"
-        if sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no $node "sudo nerdctl --namespace=k8s.io load -i /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar && rm /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar" 2>/dev/null; then
+        
+        # 원격 노드에서 사용할 컨테이너 런타임 감지
+        REMOTE_CLI="sudo nerdctl --namespace=k8s.io" # 기본값
+        if sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no $node 'command -v podman &> /dev/null'; then
+            REMOTE_CLI="sudo podman"
+            echo -e "${BLUE}INFO: $node 노드에서 Podman 감지됨${NC}"
+        fi
+
+        # 감지된 런타임으로 이미지 로드
+        LOAD_COMMAND="${REMOTE_CLI} load -i /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar && rm /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar"
+        if sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no $node "${LOAD_COMMAND}" 2>/dev/null; then
             echo -e "${GREEN}✓ $node 노드 완료${NC}"
         else
             echo -e "${YELLOW}⚠️  $node 노드 이미지 로드 실패 (계속 진행)${NC}"
