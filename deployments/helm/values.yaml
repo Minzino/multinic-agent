@@ -8,11 +8,11 @@ image:
 
 # 데이터베이스 설정
 database:
-  host: "YOUR_DB_HOST"
-  port: "YOUR_DB_PORT"
-  user: "YOUR_DB_USER"
-  password: "YOUR_DB_PASSWORD"
-  name: "YOUR_DB_NAME"
+  host: "192.168.34.79"
+  port: "30305"
+  user: "multinic_user"
+  password: "secret"
+  name: "multinic"
 
 # 에이전트 설정
 agent:
