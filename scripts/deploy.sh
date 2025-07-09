@@ -130,7 +130,7 @@ fi
 
 # 5. 필수 도구 확인
 echo -e "\n${BLUE}🔍 5단계: 필수 도구 확인${NC}"
-commands=("nerdctl" "helm" "kubectl" "crictl")
+commands=("nerdctl" "helm" "kubectl")
 for cmd in "${commands[@]}"; do
     if ! command -v $cmd &> /dev/null; then
         echo -e "${RED}✗ $cmd가 설치되어 있지 않습니다${NC}"
@@ -198,8 +198,15 @@ for node in "${ALL_NODES[@]}"; do
     if sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no ${IMAGE_NAME}-${IMAGE_TAG}.tar $node:/tmp/ 2>/dev/null; then
         echo -e "${YELLOW}🔧 $node 노드에 이미지 로드 중...${NC}"
         
-        # 감지된 런타임으로 이미지 로드 (crictl 사용)
-        LOAD_COMMAND="crictl pull docker.io/library/${IMAGE_NAME}:${IMAGE_TAG} && rm /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar"
+        # 원격 노드에서 사용할 컨테이너 런타임 감지
+        REMOTE_CLI="sudo nerdctl --namespace=k8s.io" # 기본값
+        if sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no $node 'command -v podman &> /dev/null'; then
+            REMOTE_CLI="sudo podman"
+            echo -e "${BLUE}INFO: $node 노드에서 Podman 감지됨${NC}"
+        fi
+
+        # 감지된 런타임으로 이미지 로드
+        LOAD_COMMAND="${REMOTE_CLI} load -i /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar && rm /tmp/${IMAGE_NAME}-${IMAGE_TAG}.tar"
         if sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no $node "${LOAD_COMMAND}"; then
             echo -e "${GREEN}✓ $node 노드 완료${NC}"
         else
