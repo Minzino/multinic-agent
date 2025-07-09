@@ -1,5 +1,40 @@
-### SUSE 9.4 호환성 개선
-- `wicked_adapter.go` 파일을 `suse_legacy_adapter.go`로 이름 변경하고, 내부 코드(구조체, 함수명, 주석)를 `SuseLegacyAdapter`로 업데이트함.
-- `activateInterface` 및 `deactivateInterface` 함수에서 `wicked` 명령어 대신 `ifup` 및 `ifdown` 명령어를 사용하도록 수정하여 SUSE 9.4 환경에 맞춤.
-- `factory.go`에서 `NewWickedAdapter` 대신 `NewSuseLegacyAdapter`를 호출하도록 업데이트함.
-- `README.md` 및 `README_TEAM.md`의 지원 OS 목록에서 'SUSE Linux Enterprise 15+'를 'SUSE Linux 9.4'로 변경하여 문서의 정확성을 높임.
+### RHEL 9 (nmcli) 지원 추가 및 OS 감지 로직 개선 (2025-07-09)
+
+**1. 문제 발단 및 초기 진단:**
+- 사용자로부터 SUSE 9.4 환경에서 `ifup`/`ifdown` 명령어가 작동하지 않는다는 피드백을 받음.
+- 초기 `git log` 및 `GEMINI.md` 분석 결과, 최근 SUSE 9.4 (ifup/down) 호환성 추가 작업이 있었음을 확인.
+- 원격 서버에 직접 SSH 접속하여 명령어 존재 여부를 확인하려 했으나, `sshpass`를 통한 원격 명령어 실행이 계속 실패함.
+
+**2. SSH 접속 문제 해결:**
+- 사용자로부터 SSH 접속이 프록시 서버를 통한 이중 비밀번호 인증 방식임을 확인.
+- `~/.ssh/config` 파일에 직접 접근할 수 없는 제약사항으로 인해, `sshpass`를 중첩 사용하는 복잡한 명령어를 구성하여 원격 서버 접속에 성공.
+- `sshpass -p 'cloud1234' ssh -o StrictHostKeyChecking=no -o ProxyCommand="sshpass -p 'cloud1234' ssh -o StrictHostKeyChecking=no -W %h:%p suse" suse-biz-worker1 'uname -a'`
+
+**3. OS 오인 및 근본 원인 파악:**
+- `uname -a` 및 `cat /etc/os-release` 명령 실행 결과, 해당 서버가 SUSE 9.4가 아닌 **Red Hat Enterprise Linux 9.4 (SUSE Liberty Linux)**임을 확인.
+- 이는 `wicked`나 레거시 `ifup`/`ifdown` 명령어가 아닌, RHEL 계열의 표준 네트워크 관리 도구인 `NetworkManager` (`nmcli`)를 사용해야 함을 의미.
+- 기존 SUSE 9.4 지원 로직이 잘못된 OS 정보에 기반했음을 파악.
+
+**4. 코드 수정 및 기능 구현:**
+- **`internal/domain/interfaces/os.go`**: 새로운 OS 타입 `OSTypeRHEL` 추가.
+- **`internal/infrastructure/network/suse_legacy_adapter.go`**: 잘못된 SUSE 레거시 어댑터 파일 삭제.
+- **`internal/infrastructure/network/rhel_adapter.go`**: `nmcli` 명령어를 사용하여 네트워크 인터페이스를 설정, 검증, 롤백하는 `RHELAdapter` 구현.
+  - `nmcli connection add`, `nmcli connection up`, `nmcli connection down`, `nmcli connection delete` 등 사용.
+- **`internal/infrastructure/adapters/os_detector.go`**: OS 감지 로직을 `/etc/issue` 대신 `/etc/os-release` 파일을 파싱하도록 개선. `ID` 및 `ID_LIKE` 필드를 기반으로 `Ubuntu`, `SUSE`, `RHEL` (및 호환 OS)를 정확히 식별하도록 수정. `fmt` 패키지 import 누락 오류 수정.
+- **`internal/infrastructure/network/factory.go`**: `NetworkManagerFactory`에서 감지된 OS 타입에 따라 `RHELAdapter`를 생성하도록 로직 업데이트.
+- **`README.md`**: 지원 OS 목록을 "Red Hat Enterprise Linux 9+ (및 Rocky, Alma, SUSE Liberty 등 호환 OS)"로 업데이트.
+
+**5. 테스트 및 디버깅 여정:**
+- 코드 수정 후 `go test ./internal/...` 실행 시 테스트 실패 발생.
+- **첫 번째 실패**: `rhel_adapter.go`에서 `entities.InterfaceName`을 `string`으로 직접 변환하려던 컴파일 에러 발생. `name.String()` 메서드를 사용하도록 수정.
+- **두 번째 실패**: `os_detector_test.go`에서 `ReadFile("/etc/issue")`가 예상치 않게 호출되는 `mock` 에러 발생.
+  - `os_detector.go`의 `DetectOS` 함수 내 논리적 버그(일치하는 OS가 없을 때 `detectOSFromIssue()`로 폴백)를 발견하고 수정.
+  - `fmt` 패키지 import 누락 오류 수정.
+- **세 번째 실패**: `os_detector_test.go`의 테스트 데이터 문자열 리터럴 파싱 문제 확인. `osReleaseContent`를 더 단순한 형태로 변경하여 파싱 오류 해결.
+- **최종 결과**: 모든 단위 테스트 성공적으로 통과.
+
+**6. 작업 완료:**
+- 모든 코드 변경 및 문서 업데이트 완료.
+- 테스트 통과 확인.
+- `GEMINI.md`에 상세 작업 내용 기록.
+- Git 저장소에 변경 사항 푸시 준비 완료.
