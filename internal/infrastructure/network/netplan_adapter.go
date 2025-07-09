@@ -65,7 +65,9 @@ func (a *NetplanAdapter) Configure(ctx context.Context, iface entities.NetworkIn
 	// Netplan 테스트 (try 명령)
 	if err := a.testNetplan(ctx); err != nil {
 		// 실패 시 설정 파일 제거
-		a.fileSystem.Remove(configPath)
+		if removeErr := a.fileSystem.Remove(configPath); removeErr != nil {
+			a.logger.WithError(removeErr).WithField("config_path", configPath).Error("Netplan 테스트 실패 후 설정 파일 제거에 실패했습니다.")
+		}
 		return errors.NewNetworkError("Netplan 설정 테스트 실패", err)
 	}
 
