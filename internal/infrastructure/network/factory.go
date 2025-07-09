@@ -3,7 +3,7 @@ package network
 import (
 	"multinic-agent-v2/internal/domain/errors"
 	"multinic-agent-v2/internal/domain/interfaces"
-	
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,9 +36,9 @@ func (f *NetworkManagerFactory) CreateNetworkConfigurer() (interfaces.NetworkCon
 	if err != nil {
 		return nil, errors.NewSystemError("OS 감지 실패", err)
 	}
-	
+
 	f.logger.WithField("os_type", osType).Info("OS 타입 감지 완료")
-	
+
 	switch osType {
 	case interfaces.OSTypeUbuntu:
 		return NewNetplanAdapter(
@@ -46,14 +46,14 @@ func (f *NetworkManagerFactory) CreateNetworkConfigurer() (interfaces.NetworkCon
 			f.fileSystem,
 			f.logger,
 		), nil
-		
+
 	case interfaces.OSTypeSUSE:
 		return NewWickedAdapter(
 			f.commandExecutor,
 			f.fileSystem,
 			f.logger,
 		), nil
-		
+
 	default:
 		return nil, errors.NewSystemError("지원하지 않는 OS 타입", nil)
 	}
@@ -66,11 +66,11 @@ func (f *NetworkManagerFactory) CreateNetworkRollbacker() (interfaces.NetworkRol
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 타입 어서션을 통해 NetworkRollbacker로 변환
 	if rollbacker, ok := configurer.(interfaces.NetworkRollbacker); ok {
 		return rollbacker, nil
 	}
-	
+
 	return nil, errors.NewSystemError("네트워크 관리자가 롤백 기능을 지원하지 않음", nil)
 }

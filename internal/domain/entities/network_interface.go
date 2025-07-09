@@ -28,9 +28,9 @@ type InterfaceName struct {
 }
 
 var (
-	ErrInvalidMacAddress     = errors.New("유효하지 않은 MAC 주소 형식")
-	ErrInvalidInterfaceName  = errors.New("유효하지 않은 인터페이스 이름")
-	ErrInvalidNodeName       = errors.New("유효하지 않은 노드 이름")
+	ErrInvalidMacAddress    = errors.New("유효하지 않은 MAC 주소 형식")
+	ErrInvalidInterfaceName = errors.New("유효하지 않은 인터페이스 이름")
+	ErrInvalidNodeName      = errors.New("유효하지 않은 노드 이름")
 )
 
 // NewInterfaceName은 새로운 인터페이스 이름을 생성합니다

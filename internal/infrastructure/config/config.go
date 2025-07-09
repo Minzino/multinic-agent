@@ -77,12 +77,12 @@ func (l *EnvironmentConfigLoader) Load() (*Config, error) {
 			Port: getEnvOrDefault("HEALTH_PORT", "8080"),
 		},
 	}
-	
+
 	// 설정 유효성 검증
 	if err := l.validate(config); err != nil {
 		return nil, err
 	}
-	
+
 	return config, nil
 }
 
@@ -101,7 +101,7 @@ func (l *EnvironmentConfigLoader) validate(config *Config) error {
 	if config.Database.Database == "" {
 		return errors.NewValidationError("데이터베이스 이름이 설정되지 않음", nil)
 	}
-	
+
 	// 에이전트 설정 검증
 	if config.Agent.PollInterval <= 0 {
 		return errors.NewValidationError("폴링 간격이 유효하지 않음", nil)
@@ -109,12 +109,12 @@ func (l *EnvironmentConfigLoader) validate(config *Config) error {
 	if config.Agent.MaxRetries < 0 {
 		return errors.NewValidationError("최대 재시도 횟수가 유효하지 않음", nil)
 	}
-	
+
 	// 헬스체크 설정 검증
 	if config.Health.Port == "" {
 		return errors.NewValidationError("헬스체크 포트가 설정되지 않음", nil)
 	}
-	
+
 	return nil
 }
 

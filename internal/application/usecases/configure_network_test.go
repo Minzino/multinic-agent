@@ -7,11 +7,11 @@ import (
 	"os"
 	"testing"
 	"time"
-	
+
 	"multinic-agent-v2/internal/domain/entities"
 	domainErrors "multinic-agent-v2/internal/domain/errors"
 	"multinic-agent-v2/internal/domain/services"
-	
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -65,7 +65,6 @@ func (m *MockNetworkRollbacker) Rollback(ctx context.Context, name string) error
 	args := m.Called(ctx, name)
 	return args.Error(0)
 }
-
 
 type MockFileSystem struct {
 	mock.Mock
@@ -151,22 +150,22 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 					AttachedNodeName: "test-node",
 					Status:           entities.StatusPending,
 				}
-				
+
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
-				
+
 				// 인터페이스 이름 생성을 위한 파일 시스템 mock
 				fs.On("Exists", "/sys/class/net/multinic0").Return(false)
-				
+
 				// 네트워크 설정 성공
 				configurer.On("Configure", mock.Anything, testInterface, mock.MatchedBy(func(name entities.InterfaceName) bool {
 					return name.String() == "multinic0"
 				})).Return(nil)
-				
+
 				// 검증 성공
 				configurer.On("Validate", mock.Anything, mock.MatchedBy(func(name entities.InterfaceName) bool {
 					return name.String() == "multinic0"
 				})).Return(nil)
-				
+
 				// 상태 업데이트 성공
 				repo.On("UpdateInterfaceStatus", mock.Anything, 1, entities.StatusConfigured).Return(nil)
 			},
@@ -189,20 +188,20 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 					AttachedNodeName: "test-node",
 					Status:           entities.StatusPending,
 				}
-				
+
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
-				
+
 				// 인터페이스 이름 생성을 위한 파일 시스템 mock
 				fs.On("Exists", "/sys/class/net/multinic0").Return(false)
-				
+
 				// 네트워크 설정 실패
 				configurer.On("Configure", mock.Anything, testInterface, mock.MatchedBy(func(name entities.InterfaceName) bool {
 					return name.String() == "multinic0"
 				})).Return(errors.New("설정 실패"))
-				
+
 				// 롤백 수행
 				rollbacker.On("Rollback", mock.Anything, "multinic0").Return(nil)
-				
+
 				// 실패 상태로 업데이트
 				repo.On("UpdateInterfaceStatus", mock.Anything, 1, entities.StatusFailed).Return(nil)
 			},
@@ -225,25 +224,25 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 					AttachedNodeName: "test-node",
 					Status:           entities.StatusPending,
 				}
-				
+
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
-				
+
 				// 인터페이스 이름 생성을 위한 파일 시스템 mock
 				fs.On("Exists", "/sys/class/net/multinic0").Return(false)
-				
+
 				// 네트워크 설정 성공
 				configurer.On("Configure", mock.Anything, testInterface, mock.MatchedBy(func(name entities.InterfaceName) bool {
 					return name.String() == "multinic0"
 				})).Return(nil)
-				
+
 				// 검증 실패
 				configurer.On("Validate", mock.Anything, mock.MatchedBy(func(name entities.InterfaceName) bool {
 					return name.String() == "multinic0"
 				})).Return(errors.New("검증 실패"))
-				
+
 				// 롤백 수행
 				rollbacker.On("Rollback", mock.Anything, "multinic0").Return(nil)
-				
+
 				// 실패 상태로 업데이트
 				repo.On("UpdateInterfaceStatus", mock.Anything, 1, entities.StatusFailed).Return(nil)
 			},
@@ -266,7 +265,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			wantError:      true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Mock 객체들 생성
@@ -274,32 +273,32 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			mockConfigurer := new(MockNetworkConfigurer)
 			mockRollbacker := new(MockNetworkRollbacker)
 			mockFS := new(MockFileSystem)
-			
+
 			// Mock 설정
 			tt.setupMocks(mockRepo, mockConfigurer, mockRollbacker, mockFS)
-			
+
 			// Mock CommandExecutor 생성
 			mockExecutor := new(MockCommandExecutor)
-			
+
 			// 네이밍 서비스 생성
 			namingService := services.NewInterfaceNamingService(mockFS, mockExecutor)
-			
+
 			// 로거 생성
 			logger := logrus.New()
 			logger.SetLevel(logrus.FatalLevel) // 테스트 중 로그 출력 억제
-			
+
 			// 유스케이스 생성
 			useCase := NewConfigureNetworkUseCase(
 				mockRepo,
 				mockConfigurer,
 				mockRollbacker,
-								namingService,
+				namingService,
 				logger,
 			)
-			
+
 			// 실행
 			result, err := useCase.Execute(context.Background(), tt.input)
-			
+
 			// 검증
 			if tt.wantError {
 				assert.Error(t, err)
@@ -311,7 +310,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				assert.Equal(t, tt.expectedOutput.FailedCount, result.FailedCount)
 				assert.Equal(t, tt.expectedOutput.TotalCount, result.TotalCount)
 			}
-			
+
 			// Mock 호출 검증
 			mockRepo.AssertExpectations(t)
 			mockConfigurer.AssertExpectations(t)
@@ -359,7 +358,7 @@ func TestConfigureNetworkUseCase_processInterface(t *testing.T) {
 			errorType: "SYSTEM",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Mock 객체들 생성
@@ -368,29 +367,29 @@ func TestConfigureNetworkUseCase_processInterface(t *testing.T) {
 			mockFS := new(MockFileSystem)
 			mockRepo := new(MockNetworkInterfaceRepository)
 			mockExecutor := new(MockCommandExecutor)
-			
+
 			// Mock 설정
 			tt.setupMocks(mockConfigurer, mockRollbacker, mockFS)
-			
+
 			// 네이밍 서비스 생성
 			namingService := services.NewInterfaceNamingService(mockFS, mockExecutor)
-			
+
 			// 로거 생성
 			logger := logrus.New()
 			logger.SetLevel(logrus.FatalLevel)
-			
+
 			// 유스케이스 생성
 			useCase := NewConfigureNetworkUseCase(
 				mockRepo,
 				mockConfigurer,
 				mockRollbacker,
-								namingService,
+				namingService,
 				logger,
 			)
-			
+
 			// processInterface 메서드 테스트
 			err := useCase.processInterface(context.Background(), tt.iface)
-			
+
 			// 검증
 			if tt.wantError {
 				assert.Error(t, err)
@@ -403,7 +402,7 @@ func TestConfigureNetworkUseCase_processInterface(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
-			
+
 			// Mock 호출 검증
 			mockConfigurer.AssertExpectations(t)
 			mockRollbacker.AssertExpectations(t)

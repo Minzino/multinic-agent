@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	
+
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -42,33 +42,33 @@ func (a *NetplanAdapter) Configure(ctx context.Context, iface entities.NetworkIn
 	// 설정 파일 경로 생성
 	index := extractInterfaceIndex(name.String())
 	configPath := filepath.Join(a.configDir, fmt.Sprintf("9%d-%s.yaml", index, name.String()))
-	
+
 	// 백업 로직 제거 - 기존 설정 파일이 있으면 덮어쓰기
-	
+
 	// Netplan 설정 생성
 	config := a.generateNetplanConfig(iface, name.String())
 	configData, err := yaml.Marshal(config)
 	if err != nil {
 		return errors.NewSystemError("Netplan 설정 마샬링 실패", err)
 	}
-	
+
 	// 설정 파일 저장
 	if err := a.fileSystem.WriteFile(configPath, configData, 0644); err != nil {
 		return errors.NewSystemError("Netplan 설정 파일 저장 실패", err)
 	}
-	
+
 	a.logger.WithFields(logrus.Fields{
-		"interface": name.String(),
+		"interface":   name.String(),
 		"config_path": configPath,
 	}).Info("Netplan 설정 파일 생성 완료")
-	
+
 	// Netplan 테스트 (try 명령)
 	if err := a.testNetplan(ctx); err != nil {
 		// 실패 시 설정 파일 제거
 		a.fileSystem.Remove(configPath)
 		return errors.NewNetworkError("Netplan 설정 테스트 실패", err)
 	}
-	
+
 	// Netplan 적용
 	if err := a.applyNetplan(ctx); err != nil {
 		// 실패 시 롤백
@@ -77,7 +77,7 @@ func (a *NetplanAdapter) Configure(ctx context.Context, iface entities.NetworkIn
 		}
 		return errors.NewNetworkError("Netplan 설정 적용 실패", err)
 	}
-	
+
 	return nil
 }
 
@@ -88,13 +88,13 @@ func (a *NetplanAdapter) Validate(ctx context.Context, name entities.InterfaceNa
 	if !a.fileSystem.Exists(interfacePath) {
 		return errors.NewValidationError("네트워크 인터페이스가 존재하지 않음", nil)
 	}
-	
+
 	// 인터페이스가 UP 상태인지 확인
 	_, err := a.commandExecutor.ExecuteWithTimeout(ctx, 10*time.Second, "ip", "link", "show", name.String(), "up")
 	if err != nil {
 		return errors.NewValidationError("네트워크 인터페이스가 UP 상태가 아님", err)
 	}
-	
+
 	return nil
 }
 
@@ -102,21 +102,21 @@ func (a *NetplanAdapter) Validate(ctx context.Context, name entities.InterfaceNa
 func (a *NetplanAdapter) Rollback(ctx context.Context, name string) error {
 	index := extractInterfaceIndex(name)
 	configPath := filepath.Join(a.configDir, fmt.Sprintf("9%d-%s.yaml", index, name))
-	
+
 	// 설정 파일 제거
 	if a.fileSystem.Exists(configPath) {
 		if err := a.fileSystem.Remove(configPath); err != nil {
 			return errors.NewSystemError("설정 파일 제거 실패", err)
 		}
 	}
-	
+
 	// 백업 복원 로직 제거 - 단순히 설정 파일만 제거
-	
+
 	// Netplan 재적용
 	if err := a.applyNetplan(ctx); err != nil {
 		return errors.NewNetworkError("롤백 후 Netplan 적용 실패", err)
 	}
-	
+
 	a.logger.WithField("interface", name).Info("네트워크 설정 롤백 완료")
 	return nil
 }
@@ -125,7 +125,7 @@ func (a *NetplanAdapter) Rollback(ctx context.Context, name string) error {
 func (a *NetplanAdapter) testNetplan(ctx context.Context) error {
 	// 컨테이너 환경에서는 nsenter를 사용하여 호스트 네임스페이스에서 실행
 	_, err := a.commandExecutor.ExecuteWithTimeout(
-		ctx, 
+		ctx,
 		120*time.Second,
 		"nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid",
 		"netplan", "try", "--timeout=120",
@@ -157,12 +157,12 @@ func (a *NetplanAdapter) generateNetplanConfig(iface entities.NetworkInterface, 
 						"macaddress": iface.MacAddress,
 					},
 					"set-name": interfaceName,
-					"mtu": 1500,
+					"mtu":      1500,
 				},
 			},
 		},
 	}
-	
+
 	return config
 }
 

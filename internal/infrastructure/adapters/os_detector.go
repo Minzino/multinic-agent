@@ -25,17 +25,17 @@ func (d *RealOSDetector) DetectOS() (interfaces.OSType, error) {
 	if err != nil {
 		return "", errors.NewSystemError("OS 감지 실패", err)
 	}
-	
+
 	contentStr := strings.ToLower(string(content))
-	
+
 	if strings.Contains(contentStr, "ubuntu") {
 		return interfaces.OSTypeUbuntu, nil
 	}
-	
+
 	if strings.Contains(contentStr, "suse") {
 		return interfaces.OSTypeSUSE, nil
 	}
-	
+
 	// 기본값은 Ubuntu
 	return interfaces.OSTypeUbuntu, nil
 }
