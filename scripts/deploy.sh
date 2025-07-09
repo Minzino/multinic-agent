@@ -169,7 +169,7 @@ echo -e "\n${BLUE}📦 6단계: 이미지 빌드${NC}"
 cd "$(dirname "$0")/.."
 
 echo -e "${YELLOW}nerdctl로 이미지 빌드 중...${NC}"
-nerdctl --namespace=k8s.io --address /var/run/containerd/containerd.sock build --no-cache -t docker.io/library/${IMAGE_NAME}:${IMAGE_TAG} .
+nerdctl --namespace=k8s.io --address /var/run/containerd/containerd.sock build --no-cache -t ${IMAGE_NAME}:${IMAGE_TAG} .
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ 이미지 빌드 완료${NC}"
@@ -181,7 +181,7 @@ fi
 # 7. 이미지를 tar로 저장
 echo -e "\n${BLUE}💾 7단계: 이미지 저장${NC}"
 echo -e "${YELLOW}이미지를 tar 파일로 저장 중...${NC}"
-nerdctl --namespace=k8s.io --address /var/run/containerd/containerd.sock save docker.io/library/${IMAGE_NAME}:${IMAGE_TAG} -o ${IMAGE_NAME}-${IMAGE_TAG}.tar
+nerdctl --namespace=k8s.io --address /var/run/containerd/containerd.sock save ${IMAGE_NAME}:${IMAGE_TAG} -o ${IMAGE_NAME}-${IMAGE_TAG}.tar
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ 이미지 저장 완료${NC}"
@@ -238,7 +238,7 @@ helm uninstall $RELEASE_NAME --namespace $NAMESPACE &> /dev/null || true
 echo -e "${YELLOW}Helm으로 업그레이드 또는 신규 설치를 진행합니다...${NC}"
 if helm upgrade --install $RELEASE_NAME ./deployments/helm \
     --namespace $NAMESPACE \
-    --set image.repository=docker.io/library/$IMAGE_NAME \
+    --set image.repository=$IMAGE_NAME \
     --set image.tag=$IMAGE_TAG \
     --set image.pullPolicy=Never \
     --wait --timeout=5m; then
