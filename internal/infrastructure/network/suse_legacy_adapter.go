@@ -13,21 +13,21 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// WickedAdapter는 SUSE Wicked을 사용하는 NetworkConfigurer 및 NetworkRollbacker 구현체입니다
-type WickedAdapter struct {
+// SuseLegacyAdapter는 SUSE 9.4 (ifup/down)을 사용하는 NetworkConfigurer 및 NetworkRollbacker 구현체입니다
+type SuseLegacyAdapter struct {
 	commandExecutor interfaces.CommandExecutor
 	fileSystem      interfaces.FileSystem
 	logger          *logrus.Logger
 	configDir       string
 }
 
-// NewWickedAdapter는 새로운 WickedAdapter를 생성합니다
-func NewWickedAdapter(
+// NewSuseLegacyAdapter는 새로운 SuseLegacyAdapter를 생성합니다
+func NewSuseLegacyAdapter(
 	executor interfaces.CommandExecutor,
 	fs interfaces.FileSystem,
 	logger *logrus.Logger,
-) *WickedAdapter {
-	return &WickedAdapter{
+) *SuseLegacyAdapter {
+	return &SuseLegacyAdapter{
 		commandExecutor: executor,
 		fileSystem:      fs,
 		logger:          logger,
@@ -36,24 +36,24 @@ func NewWickedAdapter(
 }
 
 // Configure는 네트워크 인터페이스를 설정합니다
-func (a *WickedAdapter) Configure(ctx context.Context, iface entities.NetworkInterface, name entities.InterfaceName) error {
+func (a *SuseLegacyAdapter) Configure(ctx context.Context, iface entities.NetworkInterface, name entities.InterfaceName) error {
 	// 설정 파일 경로 생성
 	configPath := filepath.Join(a.configDir, fmt.Sprintf("ifcfg-%s", name.String()))
 
 	// 백업 로직 제거 - 기존 설정 파일이 있으면 덮어쓰기
 
-	// Wicked 설정 생성
-	configContent := a.generateWickedConfig(iface, name.String())
+	// ifcfg 설정 생성
+	configContent := a.generateIfcfgConfig(iface, name.String())
 
 	// 설정 파일 저장
 	if err := a.fileSystem.WriteFile(configPath, []byte(configContent), 0644); err != nil {
-		return errors.NewSystemError("Wicked 설정 파일 저장 실패", err)
+		return errors.NewSystemError("ifcfg 설정 파일 저장 실패", err)
 	}
 
 	a.logger.WithFields(logrus.Fields{
 		"interface":   name.String(),
 		"config_path": configPath,
-	}).Info("Wicked 설정 파일 생성 완료")
+	}).Info("ifcfg 설정 파일 생성 완료")
 
 	// 인터페이스 활성화
 	if err := a.activateInterface(ctx, name.String()); err != nil {
@@ -68,7 +68,7 @@ func (a *WickedAdapter) Configure(ctx context.Context, iface entities.NetworkInt
 }
 
 // Validate는 설정된 인터페이스가 정상 작동하는지 검증합니다
-func (a *WickedAdapter) Validate(ctx context.Context, name entities.InterfaceName) error {
+func (a *SuseLegacyAdapter) Validate(ctx context.Context, name entities.InterfaceName) error {
 	// 인터페이스가 존재하는지 확인
 	interfacePath := fmt.Sprintf("/sys/class/net/%s", name.String())
 	if !a.fileSystem.Exists(interfacePath) {
@@ -85,7 +85,7 @@ func (a *WickedAdapter) Validate(ctx context.Context, name entities.InterfaceNam
 }
 
 // Rollback은 인터페이스 설정을 이전 상태로 되돌립니다
-func (a *WickedAdapter) Rollback(ctx context.Context, name string) error {
+func (a *SuseLegacyAdapter) Rollback(ctx context.Context, name string) error {
 	configPath := filepath.Join(a.configDir, fmt.Sprintf("ifcfg-%s", name))
 
 	// 인터페이스 비활성화
@@ -106,28 +106,28 @@ func (a *WickedAdapter) Rollback(ctx context.Context, name string) error {
 	return nil
 }
 
-// activateInterface는 wicked를 사용하여 인터페이스를 활성화합니다
-func (a *WickedAdapter) activateInterface(ctx context.Context, interfaceName string) error {
+// activateInterface는 ifup/down을 사용하여 인터페이스를 활성화합니다
+func (a *SuseLegacyAdapter) activateInterface(ctx context.Context, interfaceName string) error {
 	_, err := a.commandExecutor.ExecuteWithTimeout(
 		ctx,
 		30*time.Second,
-		"wicked", "ifup", interfaceName,
+		"ifup", interfaceName,
 	)
 	return err
 }
 
-// deactivateInterface는 wicked를 사용하여 인터페이스를 비활성화합니다
-func (a *WickedAdapter) deactivateInterface(ctx context.Context, interfaceName string) error {
+// deactivateInterface는 ifdown을 사용하여 인터페이스를 비활성화합니다
+func (a *SuseLegacyAdapter) deactivateInterface(ctx context.Context, interfaceName string) error {
 	_, err := a.commandExecutor.ExecuteWithTimeout(
 		ctx,
 		30*time.Second,
-		"wicked", "ifdown", interfaceName,
+		"ifdown", interfaceName,
 	)
 	return err
 }
 
-// generateWickedConfig는 Wicked 설정 파일 내용을 생성합니다
-func (a *WickedAdapter) generateWickedConfig(iface entities.NetworkInterface, interfaceName string) string {
+// generateIfcfgConfig는 ifcfg 설정 파일 내용을 생성합니다
+func (a *SuseLegacyAdapter) generateIfcfgConfig(iface entities.NetworkInterface, interfaceName string) string {
 	var config strings.Builder
 
 	// 기본 설정

@@ -48,7 +48,8 @@ func (f *NetworkManagerFactory) CreateNetworkConfigurer() (interfaces.NetworkCon
 		), nil
 
 	case interfaces.OSTypeSUSE:
-		return NewWickedAdapter(
+		// SUSE 9.4 (ifup/down) 레거시 어댑터
+		return NewSuseLegacyAdapter(
 			f.commandExecutor,
 			f.fileSystem,
 			f.logger,
