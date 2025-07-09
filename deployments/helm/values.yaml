@@ -10,7 +10,7 @@ image:
 database:
   host: "192.168.34.79"
   port: "30305"
-  user: "multinic_user"
+  user: "root"
   password: "secret"
   name: "multinic"
 
