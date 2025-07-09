@@ -38,6 +38,8 @@ spec:
           value: "{{ .Values.database.name }}"
         - name: POLL_INTERVAL
           value: "{{ .Values.agent.pollInterval }}"
+        - name: LOG_LEVEL
+          value: "{{ .Values.agent.logLevel }}"
         - name: NODE_NAME
           valueFrom:
             fieldRef:
