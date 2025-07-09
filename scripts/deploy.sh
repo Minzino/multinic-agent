@@ -234,7 +234,7 @@ if helm upgrade --install $RELEASE_NAME ./deployments/helm \
     --set image.repository=docker.io/library/$IMAGE_NAME \
     --set image.tag=$IMAGE_TAG \
     --set image.pullPolicy=Never \
-    --wait --timeout=5m --debug; then
+    --wait --timeout=5m; then
 
     echo -e "${GREEN}✓ MultiNIC Agent 배포 완료${NC}"
 else
@@ -242,14 +242,7 @@ else
     exit 1
 fi
 
-# 11. DaemonSet Pod 상태 확인
-echo -e "\n${BLUE}🔍 11단계: DaemonSet Pod 상태 확인${NC}"
-echo -e "${YELLOW}DaemonSet Pod들이 Ready 상태가 될 때까지 대기중...${NC}"
-if kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=multinic-agent -n $NAMESPACE --timeout=60s; then
-    echo -e "${GREEN}✓ 모든 Agent Pod가 성공적으로 실행중입니다${NC}"
-else
-    echo -e "${YELLOW}⚠️  일부 Pod의 Ready 상태 확인 타임아웃. 수동으로 확인해주세요.${NC}"
-fi
+
 
 # 12. 전체 상태 확인
 echo -e "\n${BLUE}📊 12단계: 전체 시스템 상태 확인${NC}"
