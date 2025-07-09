@@ -246,7 +246,7 @@ echo -e "\n${BLUE}🚀 11단계: MultiNIC Agent 배포${NC}"
 echo -e "${YELLOW}새로운 릴리즈를 설치합니다...${NC}"
 if helm install $RELEASE_NAME ./deployments/helm \
     --namespace $NAMESPACE \
-    --set image.repository=$IMAGE_NAME \
+    --set image.repository=docker.io/library/$IMAGE_NAME \
     --set image.tag=$IMAGE_TAG \
     --set image.pullPolicy=Never \
     --wait --timeout=5m; then
