@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 	"time"
-	
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -102,11 +102,11 @@ func TestInterfaceNamingService_GenerateNextName(t *testing.T) {
 			wantError:    true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockFS := new(MockFileSystem)
-			
+
 			// 순차적으로 호출될 것으로 예상되는 인터페이스들만 Mock 설정
 			if tt.wantError {
 				// 모든 인터페이스가 사용 중인 경우 - 모든 호출이 true
@@ -122,12 +122,12 @@ func TestInterfaceNamingService_GenerateNextName(t *testing.T) {
 				} else if tt.expectedName == "multinic2" {
 					expectedIndex = 2
 				}
-				
+
 				// 0부터 expectedIndex까지 순차적으로 호출
 				for i := 0; i <= expectedIndex; i++ {
 					interfacePath := fmt.Sprintf("/sys/class/net/multinic%d", i)
 					interfaceName := fmt.Sprintf("multinic%d", i)
-					
+
 					// 기존 인터페이스 목록에 있으면 true, 없으면 false
 					exists := false
 					for _, existing := range tt.existingIfaces {
@@ -139,11 +139,11 @@ func TestInterfaceNamingService_GenerateNextName(t *testing.T) {
 					mockFS.On("Exists", interfacePath).Return(exists).Once()
 				}
 			}
-			
+
 			mockExecutor := new(MockCommandExecutor)
 			service := NewInterfaceNamingService(mockFS, mockExecutor)
 			result, err := service.GenerateNextName()
-			
+
 			if tt.wantError {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "사용 가능한 인터페이스 이름이 없습니다")
@@ -151,7 +151,7 @@ func TestInterfaceNamingService_GenerateNextName(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expectedName, result.String())
 			}
-			
+
 			mockFS.AssertExpectations(t)
 		})
 	}
@@ -177,17 +177,17 @@ func TestInterfaceNamingService_isInterfaceInUse(t *testing.T) {
 			expected:      false,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockFS := new(MockFileSystem)
 			mockExecutor := new(MockCommandExecutor)
 			expectedPath := fmt.Sprintf("/sys/class/net/%s", tt.interfaceName)
 			mockFS.On("Exists", expectedPath).Return(tt.exists)
-			
+
 			service := NewInterfaceNamingService(mockFS, mockExecutor)
 			result := service.isInterfaceInUse(tt.interfaceName)
-			
+
 			assert.Equal(t, tt.expected, result)
 			mockFS.AssertExpectations(t)
 		})
@@ -196,10 +196,10 @@ func TestInterfaceNamingService_isInterfaceInUse(t *testing.T) {
 
 func TestInterfaceNamingService_GetCurrentMultinicInterfaces_SystemBased(t *testing.T) {
 	tests := []struct {
-		name           string
-		setupMock      func(*MockFileSystem)
-		expectedCount  int
-		expectedNames  []string
+		name          string
+		setupMock     func(*MockFileSystem)
+		expectedCount int
+		expectedNames []string
 	}{
 		{
 			name: "시스템에 multinic0과 multinic2가 존재하는 경우",
@@ -208,7 +208,7 @@ func TestInterfaceNamingService_GetCurrentMultinicInterfaces_SystemBased(t *test
 				mockFS.On("Exists", "/sys/class/net/multinic0").Return(true)
 				mockFS.On("Exists", "/sys/class/net/multinic1").Return(false)
 				mockFS.On("Exists", "/sys/class/net/multinic2").Return(true)
-				
+
 				// 나머지 인터페이스들은 존재하지 않음
 				for i := 3; i < 10; i++ {
 					mockFS.On("Exists", fmt.Sprintf("/sys/class/net/multinic%d", i)).Return(false)
@@ -255,12 +255,12 @@ func TestInterfaceNamingService_GetCurrentMultinicInterfaces_SystemBased(t *test
 			interfaces := service.GetCurrentMultinicInterfaces()
 
 			assert.Equal(t, tt.expectedCount, len(interfaces))
-			
+
 			actualNames := make([]string, len(interfaces))
 			for i, iface := range interfaces {
 				actualNames[i] = iface.String()
 			}
-			
+
 			assert.ElementsMatch(t, tt.expectedNames, actualNames)
 			mockFS.AssertExpectations(t)
 		})
@@ -283,10 +283,10 @@ func TestInterfaceNamingService_GetMacAddressForInterface_FromIPCommand(t *testi
     link/ether fa:16:3e:b1:29:8f brd ff:ff:ff:ff:ff:ff
     inet6 fe80::f816:3eff:feb1:298f/64 scope link
        valid_lft forever preferred_lft forever`
-				mockExecutor.On("ExecuteWithTimeout", 
-					mock.AnythingOfType("*context.timerCtx"), 
-					mock.AnythingOfType("time.Duration"), 
-					"ip", 
+				mockExecutor.On("ExecuteWithTimeout",
+					mock.AnythingOfType("*context.timerCtx"),
+					mock.AnythingOfType("time.Duration"),
+					"ip",
 					[]string{"addr", "show", "multinic0"}).Return([]byte(ipOutput), nil)
 			},
 			expectedMac: "fa:16:3e:b1:29:8f",
@@ -296,10 +296,10 @@ func TestInterfaceNamingService_GetMacAddressForInterface_FromIPCommand(t *testi
 			name:          "인터페이스가 존재하지 않는 경우",
 			interfaceName: "multinic9",
 			setupMock: func(mockFS *MockFileSystem, mockExecutor *MockCommandExecutor) {
-				mockExecutor.On("ExecuteWithTimeout", 
-					mock.AnythingOfType("*context.timerCtx"), 
-					mock.AnythingOfType("time.Duration"), 
-					"ip", 
+				mockExecutor.On("ExecuteWithTimeout",
+					mock.AnythingOfType("*context.timerCtx"),
+					mock.AnythingOfType("time.Duration"),
+					"ip",
 					[]string{"addr", "show", "multinic9"}).Return([]byte(""), fmt.Errorf("Device \"multinic9\" does not exist"))
 			},
 			expectedMac: "",
@@ -311,10 +311,10 @@ func TestInterfaceNamingService_GetMacAddressForInterface_FromIPCommand(t *testi
 			setupMock: func(mockFS *MockFileSystem, mockExecutor *MockCommandExecutor) {
 				ipOutput := `3: multinic1: <BROADCAST,MULTICAST> mtu 1500 qdisc noop state DOWN group default
     link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00`
-				mockExecutor.On("ExecuteWithTimeout", 
-					mock.AnythingOfType("*context.timerCtx"), 
-					mock.AnythingOfType("time.Duration"), 
-					"ip", 
+				mockExecutor.On("ExecuteWithTimeout",
+					mock.AnythingOfType("*context.timerCtx"),
+					mock.AnythingOfType("time.Duration"),
+					"ip",
 					[]string{"addr", "show", "multinic1"}).Return([]byte(ipOutput), nil)
 			},
 			expectedMac: "",

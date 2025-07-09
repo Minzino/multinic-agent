@@ -29,17 +29,17 @@ func TestDeleteNetworkUseCase_Execute_NetplanFileCleanup_Success(t *testing.T) {
 
 	// 1. /etc/netplan 디렉토리에 고아 파일들이 있음
 	netplanFiles := []string{
-		"50-cloud-init.yaml",    // 무시됨 (multinic 관련 아님)
-		"91-multinic1.yaml",     // multinic1 - 시스템에 존재
-		"92-multinic2.yaml",     // multinic2 - 시스템에 존재하지 않음 (고아 파일)
+		"50-cloud-init.yaml", // 무시됨 (multinic 관련 아님)
+		"91-multinic1.yaml",  // multinic1 - 시스템에 존재
+		"92-multinic2.yaml",  // multinic2 - 시스템에 존재하지 않음 (고아 파일)
 	}
 	mockFileSystem.On("ListFiles", "/etc/netplan").Return(netplanFiles, nil)
 
 	// 2. multinic1은 시스템에 존재 (MAC 주소 조회 성공)
-	mockExecutor.On("ExecuteWithTimeout", 
-		mock.AnythingOfType("*context.timerCtx"), 
-		mock.AnythingOfType("time.Duration"), 
-		"ip", 
+	mockExecutor.On("ExecuteWithTimeout",
+		mock.AnythingOfType("*context.timerCtx"),
+		mock.AnythingOfType("time.Duration"),
+		"ip",
 		[]string{"addr", "show", "multinic1"}).Return([]byte(`
 2: multinic1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 qdisc fq_codel state UP group default qlen 1000
     link/ether fa:16:3e:12:2a:03 brd ff:ff:ff:ff:ff:ff
@@ -47,10 +47,10 @@ func TestDeleteNetworkUseCase_Execute_NetplanFileCleanup_Success(t *testing.T) {
        valid_lft forever preferred_lft forever`), nil)
 
 	// 3. multinic2는 시스템에 존재하지 않음 (에러 발생)
-	mockExecutor.On("ExecuteWithTimeout", 
-		mock.AnythingOfType("*context.timerCtx"), 
-		mock.AnythingOfType("time.Duration"), 
-		"ip", 
+	mockExecutor.On("ExecuteWithTimeout",
+		mock.AnythingOfType("*context.timerCtx"),
+		mock.AnythingOfType("time.Duration"),
+		"ip",
 		[]string{"addr", "show", "multinic2"}).Return([]byte(""), errors.New("Device \"multinic2\" does not exist"))
 
 	// 4. multinic2의 고아 파일 삭제 (롤백 호출)
@@ -89,7 +89,7 @@ func TestDeleteNetworkUseCase_Execute_NoOrphanedFiles(t *testing.T) {
 
 	// 1. /etc/netplan 디렉토리에 multinic 파일이 없음
 	netplanFiles := []string{
-		"50-cloud-init.yaml",    // multinic 관련 아님
+		"50-cloud-init.yaml", // multinic 관련 아님
 	}
 	mockFileSystem.On("ListFiles", "/etc/netplan").Return(netplanFiles, nil)
 
@@ -127,10 +127,10 @@ func TestDeleteNetworkUseCase_Execute_RollbackFailure(t *testing.T) {
 	mockFileSystem.On("ListFiles", "/etc/netplan").Return(netplanFiles, nil)
 
 	// 2. multinic2는 시스템에 존재하지 않음
-	mockExecutor.On("ExecuteWithTimeout", 
-		mock.AnythingOfType("*context.timerCtx"), 
-		mock.AnythingOfType("time.Duration"), 
-		"ip", 
+	mockExecutor.On("ExecuteWithTimeout",
+		mock.AnythingOfType("*context.timerCtx"),
+		mock.AnythingOfType("time.Duration"),
+		"ip",
 		[]string{"addr", "show", "multinic2"}).Return([]byte(""), errors.New("Device \"multinic2\" does not exist"))
 
 	// 3. 롤백 실패
@@ -189,7 +189,7 @@ func TestDeleteNetworkUseCase_IsMultinicNetplanFile(t *testing.T) {
 		{"90-multinic0.yaml", true},
 		{"99-multinic9.yaml", true},
 		{"50-cloud-init.yaml", false},
-		{"multinic1.yaml", false}, // 9로 시작하지 않음
+		{"multinic1.yaml", false},   // 9로 시작하지 않음
 		{"91-multinic1.txt", false}, // yaml이 아님
 		{"invalid.yaml", false},
 	}

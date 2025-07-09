@@ -7,21 +7,21 @@ import (
 	"net/http"
 	"sync"
 	"time"
-	
+
 	"github.com/sirupsen/logrus"
 )
 
 // HealthService는 헬스체크 기능을 제공하는 서비스입니다
 type HealthService struct {
-	mu               sync.RWMutex
-	clock            interfaces.Clock
-	logger           *logrus.Logger
-	startTime        time.Time
-	dbHealthy        bool
-	dbError          error
-	processedVMs     int64
-	failedConfigs    int64
-	networkManager   string
+	mu             sync.RWMutex
+	clock          interfaces.Clock
+	logger         *logrus.Logger
+	startTime      time.Time
+	dbHealthy      bool
+	dbError        error
+	processedVMs   int64
+	failedConfigs  int64
+	networkManager string
 }
 
 // HealthStatus는 헬스체크 상태를 나타냅니다
@@ -56,7 +56,7 @@ func NewHealthService(clock interfaces.Clock, logger *logrus.Logger) *HealthServ
 func (h *HealthService) UpdateDBHealth(healthy bool, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	h.dbHealthy = healthy
 	h.dbError = err
 }
@@ -65,7 +65,7 @@ func (h *HealthService) UpdateDBHealth(healthy bool, err error) {
 func (h *HealthService) IncrementProcessedVMs() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	h.processedVMs++
 }
 
@@ -73,7 +73,7 @@ func (h *HealthService) IncrementProcessedVMs() {
 func (h *HealthService) IncrementFailedConfigs() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	h.failedConfigs++
 }
 
@@ -81,7 +81,7 @@ func (h *HealthService) IncrementFailedConfigs() {
 func (h *HealthService) SetNetworkManager(managerType string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	h.networkManager = managerType
 }
 
@@ -91,18 +91,18 @@ func (h *HealthService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	response := h.buildHealthResponse()
-	
+
 	// 상태에 따라 HTTP 상태 코드 설정
 	statusCode := http.StatusOK
 	if response.Status == StatusUnhealthy {
 		statusCode = http.StatusServiceUnavailable
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	
+
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		h.logger.WithError(err).Error("헬스체크 응답 인코딩 실패")
 	}
@@ -112,12 +112,12 @@ func (h *HealthService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *HealthService) buildHealthResponse() HealthResponse {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	
+
 	now := h.clock.Now()
-	
+
 	// 전체 상태 결정
 	status := h.determineOverallStatus()
-	
+
 	// 컴포넌트 상태
 	components := map[string]interface{}{
 		"database": map[string]interface{}{
@@ -128,14 +128,14 @@ func (h *HealthService) buildHealthResponse() HealthResponse {
 			"type": h.networkManager,
 		},
 	}
-	
+
 	// 통계 정보
 	statistics := map[string]interface{}{
 		"processed_vms":  h.processedVMs,
 		"failed_configs": h.failedConfigs,
 		"uptime":         h.formatUptime(now.Sub(h.startTime)),
 	}
-	
+
 	return HealthResponse{
 		Status:     status,
 		Timestamp:  now.Format(time.RFC3339),
@@ -151,7 +151,7 @@ func (h *HealthService) determineOverallStatus() HealthStatus {
 	if !h.dbHealthy {
 		return StatusUnhealthy
 	}
-	
+
 	// 실패한 설정이 전체의 50% 이상이면 degraded
 	if h.processedVMs > 0 && h.failedConfigs > 0 {
 		failureRate := float64(h.failedConfigs) / float64(h.processedVMs+h.failedConfigs)
@@ -159,7 +159,7 @@ func (h *HealthService) determineOverallStatus() HealthStatus {
 			return StatusDegraded
 		}
 	}
-	
+
 	return StatusHealthy
 }
 
@@ -176,7 +176,7 @@ func (h *HealthService) formatUptime(duration time.Duration) string {
 	days := int(duration.Hours()) / 24
 	hours := int(duration.Hours()) % 24
 	minutes := int(duration.Minutes()) % 60
-	
+
 	if days > 0 {
 		return fmt.Sprintf("%dd%dh%dm", days, hours, minutes)
 	} else if hours > 0 {

@@ -26,7 +26,7 @@ func (fs *RealFileSystem) WriteFile(path string, data []byte, perm os.FileMode) 
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	
+
 	return os.WriteFile(path, data, perm)
 }
 
@@ -52,13 +52,13 @@ func (fs *RealFileSystem) ListFiles(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var files []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			files = append(files, entry.Name())
 		}
 	}
-	
+
 	return files, nil
 }

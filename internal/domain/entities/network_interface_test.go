@@ -2,7 +2,7 @@ package entities
 
 import (
 	"testing"
-	
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -62,11 +62,11 @@ func TestNetworkInterface_Validate(t *testing.T) {
 			wantError: false,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.iface.Validate()
-			
+
 			if tt.wantError {
 				assert.Error(t, err)
 				if tt.errorType != nil {
@@ -83,17 +83,17 @@ func TestNetworkInterface_StatusMethods(t *testing.T) {
 	t.Run("IsPending", func(t *testing.T) {
 		iface := NetworkInterface{Status: StatusPending}
 		assert.True(t, iface.IsPending())
-		
+
 		iface.Status = StatusConfigured
 		assert.False(t, iface.IsPending())
 	})
-	
+
 	t.Run("MarkAsConfigured", func(t *testing.T) {
 		iface := NetworkInterface{Status: StatusPending}
 		iface.MarkAsConfigured()
 		assert.Equal(t, StatusConfigured, iface.Status)
 	})
-	
+
 	t.Run("MarkAsFailed", func(t *testing.T) {
 		iface := NetworkInterface{Status: StatusPending}
 		iface.MarkAsFailed()
@@ -133,11 +133,11 @@ func TestInterfaceName_NewInterfaceName(t *testing.T) {
 			wantError: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := NewInterfaceName(tt.input)
-			
+
 			if tt.wantError {
 				assert.Error(t, err)
 				assert.ErrorIs(t, err, ErrInvalidInterfaceName)
@@ -152,7 +152,7 @@ func TestInterfaceName_NewInterfaceName(t *testing.T) {
 func TestInterfaceName_String(t *testing.T) {
 	name, err := NewInterfaceName("multinic5")
 	require.NoError(t, err)
-	
+
 	assert.Equal(t, "multinic5", name.String())
 }
 
@@ -172,7 +172,7 @@ func TestMacAddressValidation(t *testing.T) {
 		{"잘못된 MAC - 형식 오류", "00112233445", false},
 		{"빈 문자열", "", false},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := isValidMacAddress(tt.macAddr)
@@ -196,7 +196,7 @@ func TestInterfaceNameValidation(t *testing.T) {
 		{"잘못된 이름 - multinica", "multinica", false},
 		{"빈 문자열", "", false},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := isValidInterfaceName(tt.ifaceName)

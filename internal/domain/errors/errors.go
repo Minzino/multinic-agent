@@ -11,19 +11,19 @@ type ErrorType string
 const (
 	// ErrorTypeValidation은 유효성 검증 실패를 나타냅니다
 	ErrorTypeValidation ErrorType = "VALIDATION"
-	
+
 	// ErrorTypeNotFound는 리소스를 찾을 수 없음을 나타냅니다
 	ErrorTypeNotFound ErrorType = "NOT_FOUND"
-	
+
 	// ErrorTypeConflict는 충돌이 발생했음을 나타냅니다
 	ErrorTypeConflict ErrorType = "CONFLICT"
-	
+
 	// ErrorTypeSystem은 시스템 레벨 에러를 나타냅니다
 	ErrorTypeSystem ErrorType = "SYSTEM"
-	
+
 	// ErrorTypeNetwork는 네트워크 관련 에러를 나타냅니다
 	ErrorTypeNetwork ErrorType = "NETWORK"
-	
+
 	// ErrorTypeTimeout은 타임아웃 에러를 나타냅니다
 	ErrorTypeTimeout ErrorType = "TIMEOUT"
 )

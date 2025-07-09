@@ -10,7 +10,7 @@ import (
 type CommandExecutor interface {
 	// Execute는 명령을 실행하고 결과를 반환합니다
 	Execute(ctx context.Context, command string, args ...string) ([]byte, error)
-	
+
 	// ExecuteWithTimeout은 타임아웃을 적용하여 명령을 실행합니다
 	ExecuteWithTimeout(ctx context.Context, timeout time.Duration, command string, args ...string) ([]byte, error)
 }
@@ -19,19 +19,19 @@ type CommandExecutor interface {
 type FileSystem interface {
 	// ReadFile은 파일을 읽습니다
 	ReadFile(path string) ([]byte, error)
-	
+
 	// WriteFile은 파일에 데이터를 씁니다
 	WriteFile(path string, data []byte, perm os.FileMode) error
-	
+
 	// Exists는 파일이나 디렉토리가 존재하는지 확인합니다
 	Exists(path string) bool
-	
+
 	// MkdirAll은 디렉토리를 재귀적으로 생성합니다
 	MkdirAll(path string, perm os.FileMode) error
-	
+
 	// Remove는 파일이나 디렉토리를 삭제합니다
 	Remove(path string) error
-	
+
 	// ListFiles는 디렉토리의 파일 목록을 반환합니다
 	ListFiles(path string) ([]string, error)
 }

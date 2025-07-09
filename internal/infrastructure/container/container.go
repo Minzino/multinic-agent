@@ -10,7 +10,7 @@ import (
 	"multinic-agent-v2/internal/infrastructure/health"
 	"multinic-agent-v2/internal/infrastructure/network"
 	"multinic-agent-v2/internal/infrastructure/persistence"
-	
+
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/sirupsen/logrus"
 )
@@ -19,25 +19,25 @@ import (
 type Container struct {
 	config *config.Config
 	logger *logrus.Logger
-	
+
 	// 인프라스트럭처 어댑터들
 	fileSystem      interfaces.FileSystem
 	commandExecutor interfaces.CommandExecutor
 	clock           interfaces.Clock
 	osDetector      interfaces.OSDetector
-	
+
 	// 서비스들
-	healthService       *health.HealthService
-	namingService       *services.InterfaceNamingService
-	networkFactory      *network.NetworkManagerFactory
-	
+	healthService  *health.HealthService
+	namingService  *services.InterfaceNamingService
+	networkFactory *network.NetworkManagerFactory
+
 	// 레포지토리
 	networkRepository interfaces.NetworkInterfaceRepository
-	
+
 	// 유스케이스
 	configureNetworkUseCase *usecases.ConfigureNetworkUseCase
 	deleteNetworkUseCase    *usecases.DeleteNetworkUseCase
-	
+
 	// 데이터베이스
 	db *sql.DB
 }
@@ -48,19 +48,19 @@ func NewContainer(cfg *config.Config, logger *logrus.Logger) (*Container, error)
 		config: cfg,
 		logger: logger,
 	}
-	
+
 	if err := container.initializeInfrastructure(); err != nil {
 		return nil, err
 	}
-	
+
 	if err := container.initializeServices(); err != nil {
 		return nil, err
 	}
-	
+
 	if err := container.initializeUseCases(); err != nil {
 		return nil, err
 	}
-	
+
 	return container, nil
 }
 
@@ -71,29 +71,29 @@ func (c *Container) initializeInfrastructure() error {
 	c.commandExecutor = adapters.NewRealCommandExecutor()
 	c.clock = adapters.NewRealClock()
 	c.osDetector = adapters.NewRealOSDetector(c.fileSystem)
-	
+
 	// 데이터베이스 연결
 	dsn := c.buildDSN()
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return err
 	}
-	
+
 	// 연결 풀 설정
 	db.SetMaxOpenConns(c.config.Database.MaxOpenConns)
 	db.SetMaxIdleConns(c.config.Database.MaxIdleConns)
 	db.SetConnMaxLifetime(c.config.Database.MaxLifetime)
-	
+
 	// 연결 테스트
 	if err := db.Ping(); err != nil {
 		return err
 	}
-	
+
 	c.db = db
-	
+
 	// 레포지토리 초기화
 	c.networkRepository = persistence.NewMySQLRepository(c.db, c.logger)
-	
+
 	return nil
 }
 
@@ -101,10 +101,10 @@ func (c *Container) initializeInfrastructure() error {
 func (c *Container) initializeServices() error {
 	// 헬스 서비스
 	c.healthService = health.NewHealthService(c.clock, c.logger)
-	
+
 	// 인터페이스 네이밍 서비스
 	c.namingService = services.NewInterfaceNamingService(c.fileSystem, c.commandExecutor)
-	
+
 	// 네트워크 관리자 팩토리
 	c.networkFactory = network.NewNetworkManagerFactory(
 		c.osDetector,
@@ -112,7 +112,7 @@ func (c *Container) initializeServices() error {
 		c.fileSystem,
 		c.logger,
 	)
-	
+
 	return nil
 }
 
@@ -123,13 +123,13 @@ func (c *Container) initializeUseCases() error {
 	if err != nil {
 		return err
 	}
-	
+
 	// 롤백 관리자 생성
 	rollbacker, err := c.networkFactory.CreateNetworkRollbacker()
 	if err != nil {
 		return err
 	}
-	
+
 	// 네트워크 설정 유스케이스
 	c.configureNetworkUseCase = usecases.NewConfigureNetworkUseCase(
 		c.networkRepository,
@@ -138,7 +138,7 @@ func (c *Container) initializeUseCases() error {
 		c.namingService,
 		c.logger,
 	)
-	
+
 	// 네트워크 삭제 유스케이스
 	c.deleteNetworkUseCase = usecases.NewDeleteNetworkUseCase(
 		c.networkRepository,
@@ -146,7 +146,7 @@ func (c *Container) initializeUseCases() error {
 		c.namingService,
 		c.logger,
 	)
-	
+
 	return nil
 }
 
