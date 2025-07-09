@@ -21,11 +21,11 @@ func NewRealCommandExecutor() interfaces.CommandExecutor {
 // Execute는 명령을 실행하고 결과를 반환합니다
 func (e *RealCommandExecutor) Execute(ctx context.Context, command string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
-	
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	
+
 	err := cmd.Run()
 	if err != nil {
 		return nil, errors.NewSystemError(
@@ -33,7 +33,7 @@ func (e *RealCommandExecutor) Execute(ctx context.Context, command string, args 
 			fmt.Errorf("%w, stderr: %s", err, stderr.String()),
 		)
 	}
-	
+
 	return stdout.Bytes(), nil
 }
 
@@ -41,7 +41,7 @@ func (e *RealCommandExecutor) Execute(ctx context.Context, command string, args 
 func (e *RealCommandExecutor) ExecuteWithTimeout(ctx context.Context, timeout time.Duration, command string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	
+
 	output, err := e.Execute(ctx, command, args...)
 	if err != nil {
 		// 컨텍스트 데드라인 초과 시 타임아웃 에러로 변환
@@ -52,6 +52,6 @@ func (e *RealCommandExecutor) ExecuteWithTimeout(ctx context.Context, timeout ti
 		}
 		return nil, err
 	}
-	
+
 	return output, nil
 }

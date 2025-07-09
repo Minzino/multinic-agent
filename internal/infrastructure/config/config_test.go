@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 	"time"
-	
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -12,16 +12,16 @@ import (
 func TestEnvironmentConfigLoader_Load(t *testing.T) {
 	// 환경 변수 백업
 	originalEnvs := map[string]string{
-		"DB_HOST":        os.Getenv("DB_HOST"),
-		"DB_PORT":        os.Getenv("DB_PORT"),
-		"DB_USER":        os.Getenv("DB_USER"),
-		"DB_PASSWORD":    os.Getenv("DB_PASSWORD"),
-		"DB_NAME":        os.Getenv("DB_NAME"),
-		"POLL_INTERVAL":  os.Getenv("POLL_INTERVAL"),
-		"HEALTH_PORT":    os.Getenv("HEALTH_PORT"),
-		"BACKUP_DIR":     os.Getenv("BACKUP_DIR"),
+		"DB_HOST":       os.Getenv("DB_HOST"),
+		"DB_PORT":       os.Getenv("DB_PORT"),
+		"DB_USER":       os.Getenv("DB_USER"),
+		"DB_PASSWORD":   os.Getenv("DB_PASSWORD"),
+		"DB_NAME":       os.Getenv("DB_NAME"),
+		"POLL_INTERVAL": os.Getenv("POLL_INTERVAL"),
+		"HEALTH_PORT":   os.Getenv("HEALTH_PORT"),
+		"BACKUP_DIR":    os.Getenv("BACKUP_DIR"),
 	}
-	
+
 	// 테스트 후 환경 변수 복원
 	defer func() {
 		for key, value := range originalEnvs {
@@ -32,7 +32,7 @@ func TestEnvironmentConfigLoader_Load(t *testing.T) {
 			}
 		}
 	}()
-	
+
 	tests := []struct {
 		name      string
 		envVars   map[string]string
@@ -102,7 +102,7 @@ func TestEnvironmentConfigLoader_Load(t *testing.T) {
 			},
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// 환경 변수 설정
@@ -113,10 +113,10 @@ func TestEnvironmentConfigLoader_Load(t *testing.T) {
 					os.Setenv(key, value)
 				}
 			}
-			
+
 			loader := NewEnvironmentConfigLoader()
 			config, err := loader.Load()
-			
+
 			if tt.wantError {
 				assert.Error(t, err)
 				assert.Nil(t, config)
@@ -131,7 +131,7 @@ func TestEnvironmentConfigLoader_Load(t *testing.T) {
 
 func TestEnvironmentConfigLoader_validate(t *testing.T) {
 	loader := &EnvironmentConfigLoader{}
-	
+
 	tests := []struct {
 		name      string
 		config    *Config
@@ -215,11 +215,11 @@ func TestEnvironmentConfigLoader_validate(t *testing.T) {
 			wantError: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := loader.validate(tt.config)
-			
+
 			if tt.wantError {
 				assert.Error(t, err)
 			} else {
@@ -234,51 +234,51 @@ func TestGetEnvHelpers(t *testing.T) {
 		// 존재하지 않는 환경 변수
 		result := getEnvOrDefault("NON_EXISTENT_VAR", "default")
 		assert.Equal(t, "default", result)
-		
+
 		// 존재하는 환경 변수
 		os.Setenv("TEST_VAR", "test_value")
 		defer os.Unsetenv("TEST_VAR")
-		
+
 		result = getEnvOrDefault("TEST_VAR", "default")
 		assert.Equal(t, "test_value", result)
 	})
-	
+
 	t.Run("getEnvIntOrDefault", func(t *testing.T) {
 		// 존재하지 않는 환경 변수
 		result := getEnvIntOrDefault("NON_EXISTENT_INT", 42)
 		assert.Equal(t, 42, result)
-		
+
 		// 유효한 정수
 		os.Setenv("TEST_INT", "123")
 		defer os.Unsetenv("TEST_INT")
-		
+
 		result = getEnvIntOrDefault("TEST_INT", 42)
 		assert.Equal(t, 123, result)
-		
+
 		// 잘못된 정수 형식
 		os.Setenv("TEST_BAD_INT", "not_a_number")
 		defer os.Unsetenv("TEST_BAD_INT")
-		
+
 		result = getEnvIntOrDefault("TEST_BAD_INT", 42)
 		assert.Equal(t, 42, result)
 	})
-	
+
 	t.Run("getEnvDurationOrDefault", func(t *testing.T) {
 		// 존재하지 않는 환경 변수
 		result := getEnvDurationOrDefault("NON_EXISTENT_DURATION", 30*time.Second)
 		assert.Equal(t, 30*time.Second, result)
-		
+
 		// 유효한 duration
 		os.Setenv("TEST_DURATION", "1m30s")
 		defer os.Unsetenv("TEST_DURATION")
-		
+
 		result = getEnvDurationOrDefault("TEST_DURATION", 30*time.Second)
 		assert.Equal(t, 90*time.Second, result)
-		
+
 		// 잘못된 duration 형식
 		os.Setenv("TEST_BAD_DURATION", "invalid")
 		defer os.Unsetenv("TEST_BAD_DURATION")
-		
+
 		result = getEnvDurationOrDefault("TEST_BAD_DURATION", 30*time.Second)
 		assert.Equal(t, 30*time.Second, result)
 	})
