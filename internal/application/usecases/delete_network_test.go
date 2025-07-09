@@ -45,10 +45,10 @@ func TestDeleteNetworkUseCase_Execute_NetplanFileCleanup_Success(t *testing.T) {
 	mockFileSystem.On("ListFiles", "/etc/netplan").Return(netplanFiles, nil)
 
 	// For multinic1, the device exists
-	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "ip", "addr", "show", "multinic1").Return([]byte("link/ether"), nil)
+	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "ip", []string{"addr", "show", "multinic1"}).Return([]byte("link/ether"), nil)
 
 	// For multinic2, the device does not exist (it's an orphan)
-	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "ip", "addr", "show", "multinic2").Return(nil, errors.New("does not exist"))
+	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "ip", []string{"addr", "show", "multinic2"}).Return([]byte(""), errors.New("does not exist"))
 
 	mockRollbacker.On("Rollback", ctx, "multinic2").Return(nil)
 
@@ -82,13 +82,13 @@ func TestDeleteNetworkUseCase_Execute_NmcliCleanup_Success(t *testing.T) {
 	mockOSDetector.On("DetectOS").Return(interfaces.OSTypeRHEL, nil)
 
 	nmcliConnections := []string{"multinic0", "multinic1"}
-	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "nmcli", "-t", "-f", "NAME", "c", "show").Return([]byte(strings.Join(nmcliConnections, "\n")), nil)
+	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "nmcli", []string{"-t", "-f", "NAME", "c", "show"}).Return([]byte(strings.Join(nmcliConnections, "\n")), nil)
 
 	// For multinic0, the device exists
-	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "ip", "addr", "show", "multinic0").Return([]byte("link/ether"), nil)
+	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "ip", []string{"addr", "show", "multinic0"}).Return([]byte("link/ether"), nil)
 
 	// For multinic1, the device does not exist (it's an orphan)
-	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "ip", "addr", "show", "multinic1").Return(nil, errors.New("does not exist"))
+	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "ip", []string{"addr", "show", "multinic1"}).Return([]byte(""), errors.New("does not exist"))
 
 	mockRollbacker.On("Rollback", ctx, "multinic1").Return(nil)
 
