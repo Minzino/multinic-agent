@@ -11,7 +11,8 @@ type NetworkInterface struct {
 	MacAddress       string
 	AttachedNodeName string
 	Status           InterfaceStatus
-	Address          string // IP 주소 (e.g., "192.168.1.10/24")
+	Address          string // IP 주소 (e.g., "192.168.1.10")
+	CIDR             string // CIDR (e.g., "192.168.1.0/24")
 	MTU              int    // MTU 값
 }
 

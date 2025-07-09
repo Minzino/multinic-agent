@@ -29,11 +29,12 @@ func NewMySQLRepository(db *sql.DB, logger *logrus.Logger) interfaces.NetworkInt
 // GetPendingInterfaces는 특정 노드의 설정 대기 중인 인터페이스들을 조회합니다
 func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
 	query := `
-		SELECT id, macaddress, attached_node_name, netplan_success, address, mtu
-		FROM multi_interface
-		WHERE netplan_success = 0 
-		AND attached_node_name = ?
-		AND deleted_at IS NULL
+		SELECT mi.id, mi.macaddress, mi.attached_node_name, mi.netplan_success, mi.address, mi.mtu, ms.cidr
+		FROM multi_interface mi
+		LEFT JOIN multi_subnet ms ON mi.subnet_id = ms.subnet_id
+		WHERE mi.netplan_success = 0 
+		AND mi.attached_node_name = ?
+		AND mi.deleted_at IS NULL
 		LIMIT 10
 	`
 
@@ -48,7 +49,7 @@ func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName str
 	for rows.Next() {
 		var iface entities.NetworkInterface
 		var netplanSuccess int
-		var address sql.NullString
+		var address, cidr sql.NullString
 		var mtu sql.NullInt64
 
 		err := rows.Scan(
@@ -58,6 +59,7 @@ func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName str
 			&netplanSuccess,
 			&address,
 			&mtu,
+			&cidr,
 		)
 		if err != nil {
 			r.logger.WithError(err).Error("행 스캔 실패")
@@ -70,6 +72,9 @@ func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName str
 		}
 		if mtu.Valid {
 			iface.MTU = int(mtu.Int64)
+		}
+		if cidr.Valid {
+			iface.CIDR = cidr.String
 		}
 		interfaces = append(interfaces, iface)
 	}
@@ -84,11 +89,12 @@ func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName str
 // GetConfiguredInterfaces는 특정 노드의 설정 완료된 인터페이스들을 조회합니다
 func (r *MySQLRepository) GetConfiguredInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
 	query := `
-		SELECT id, macaddress, attached_node_name, netplan_success, address, mtu
-		FROM multi_interface
-		WHERE netplan_success = 1
-		AND attached_node_name = ?
-		AND deleted_at IS NULL
+		SELECT mi.id, mi.macaddress, mi.attached_node_name, mi.netplan_success, mi.address, mi.mtu, ms.cidr
+		FROM multi_interface mi
+		LEFT JOIN multi_subnet ms ON mi.subnet_id = ms.subnet_id
+		WHERE mi.netplan_success = 1
+		AND mi.attached_node_name = ?
+		AND mi.deleted_at IS NULL
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, nodeName)
@@ -102,7 +108,7 @@ func (r *MySQLRepository) GetConfiguredInterfaces(ctx context.Context, nodeName 
 	for rows.Next() {
 		var iface entities.NetworkInterface
 		var netplanSuccess int
-		var address sql.NullString
+		var address, cidr sql.NullString
 		var mtu sql.NullInt64
 
 		err := rows.Scan(
@@ -112,6 +118,7 @@ func (r *MySQLRepository) GetConfiguredInterfaces(ctx context.Context, nodeName 
 			&netplanSuccess,
 			&address,
 			&mtu,
+			&cidr,
 		)
 		if err != nil {
 			r.logger.WithError(err).Error("행 스캔 실패")
@@ -124,6 +131,9 @@ func (r *MySQLRepository) GetConfiguredInterfaces(ctx context.Context, nodeName 
 		}
 		if mtu.Valid {
 			iface.MTU = int(mtu.Int64)
+		}
+		if cidr.Valid {
+			iface.CIDR = cidr.String
 		}
 		interfaces = append(interfaces, iface)
 	}
@@ -178,14 +188,15 @@ func (r *MySQLRepository) UpdateInterfaceStatus(ctx context.Context, interfaceID
 // GetInterfaceByID는 ID로 인터페이스를 조회합니다
 func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entities.NetworkInterface, error) {
 	query := `
-		SELECT id, macaddress, attached_node_name, netplan_success, address, mtu
-		FROM multi_interface
-		WHERE id = ? AND deleted_at IS NULL
+		SELECT mi.id, mi.macaddress, mi.attached_node_name, mi.netplan_success, mi.address, mi.mtu, ms.cidr
+		FROM multi_interface mi
+		LEFT JOIN multi_subnet ms ON mi.subnet_id = ms.subnet_id
+		WHERE mi.id = ? AND mi.deleted_at IS NULL
 	`
 
 	var iface entities.NetworkInterface
 	var netplanSuccess int
-	var address sql.NullString
+	var address, cidr sql.NullString
 	var mtu sql.NullInt64
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
@@ -195,6 +206,7 @@ func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entiti
 		&netplanSuccess,
 		&address,
 		&mtu,
+		&cidr,
 	)
 
 	if err == sql.ErrNoRows {
@@ -209,6 +221,9 @@ func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entiti
 	}
 	if mtu.Valid {
 		iface.MTU = int(mtu.Int64)
+	}
+	if cidr.Valid {
+		iface.CIDR = cidr.String
 	}
 
 	// 상태 매핑
@@ -225,10 +240,11 @@ func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entiti
 // GetActiveInterfaces는 특정 노드의 활성 인터페이스들을 조회합니다 (삭제 감지용)
 func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
 	query := `
-		SELECT id, macaddress, attached_node_name, netplan_success, address, mtu
-		FROM multi_interface
-		WHERE attached_node_name = ?
-		AND deleted_at IS NULL
+		SELECT mi.id, mi.macaddress, mi.attached_node_name, mi.netplan_success, mi.address, mi.mtu, ms.cidr
+		FROM multi_interface mi
+		LEFT JOIN multi_subnet ms ON mi.subnet_id = ms.subnet_id
+		WHERE mi.attached_node_name = ?
+		AND mi.deleted_at IS NULL
 		LIMIT 10
 	`
 
@@ -243,7 +259,7 @@ func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName stri
 	for rows.Next() {
 		var iface entities.NetworkInterface
 		var netplanSuccess int
-		var address sql.NullString
+		var address, cidr sql.NullString
 		var mtu sql.NullInt64
 
 		err := rows.Scan(
@@ -253,6 +269,7 @@ func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName stri
 			&netplanSuccess,
 			&address,
 			&mtu,
+			&cidr,
 		)
 		if err != nil {
 			r.logger.WithError(err).Error("행 스캔 실패")
@@ -264,6 +281,9 @@ func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName stri
 		}
 		if mtu.Valid {
 			iface.MTU = int(mtu.Int64)
+		}
+		if cidr.Valid {
+			iface.CIDR = cidr.String
 		}
 
 		// 상태 매핑
