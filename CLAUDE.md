@@ -818,3 +818,40 @@ uc.logger.Info("고아 netplan 파일 감지 완료 - 삭제 프로세스 시작
 - **불필요한 로그 제거**: 정상 상황에서는 조용함
 - **중요한 정보 유지**: 실제 삭제 작업 시에만 Info 레벨 로그 출력  
 - **성능 영향 없음**: netplan은 실제 삭제할 파일이 있을 때만 실행
+
+## README_TEAM.md 배포 가이드 완성 (2025-01-08)
+
+### 추가된 섹션: 배포 전 필수 설정
+
+README_TEAM.md에 실용적인 배포 가이드를 추가했습니다:
+
+#### 1. SSH 접근 정보 설정
+```bash
+export SSH_PASSWORD="your_actual_ssh_password"
+```
+
+#### 2. 데이터베이스 연결 정보 설정
+`deployments/helm/values.yaml` 파일 수정 필수:
+```yaml
+database:
+  host: "10.0.0.100"              # 실제 DB 호스트 IP
+  port: "3306"                    # 실제 DB 포트
+  user: "multinic_user"           # 실제 DB 사용자명
+  password: "your_db_password"    # 실제 DB 비밀번호
+  name: "multinic_database"       # 실제 DB 이름
+
+agent:
+  pollInterval: "30s"             # 원하는 폴링 간격
+  logLevel: "info"                # 로그 레벨
+```
+
+#### 3. 빠른 설정 체크리스트
+배포 전 확인해야 할 항목들을 체크리스트로 정리하여 누락 방지
+
+#### 4. 실제 배포 예시
+구체적인 환경 설정 값과 함께 실제 배포 과정을 단계별로 제시
+
+### 개선 효과
+- **배포 실패 방지**: 필수 설정 누락으로 인한 배포 실패 최소화
+- **사용 편의성**: 초보자도 쉽게 따라할 수 있는 상세한 가이드
+- **실무 적용성**: 실제 환경에서 바로 사용 가능한 구체적인 예시
