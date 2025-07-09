@@ -81,6 +81,60 @@ func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName str
 	return interfaces, nil
 }
 
+// GetConfiguredInterfaces는 특정 노드의 설정 완료된 인터페이스들을 조회합니다
+func (r *MySQLRepository) GetConfiguredInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
+	query := `
+		SELECT id, macaddress, attached_node_name, netplan_success, address, mtu
+		FROM multi_interface
+		WHERE netplan_success = 1
+		AND attached_node_name = ?
+		AND deleted_at IS NULL
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, nodeName)
+	if err != nil {
+		return nil, errors.NewSystemError("데이터베이스 조회 실패", err)
+	}
+	defer rows.Close()
+
+	var interfaces []entities.NetworkInterface
+
+	for rows.Next() {
+		var iface entities.NetworkInterface
+		var netplanSuccess int
+		var address sql.NullString
+		var mtu sql.NullInt64
+
+		err := rows.Scan(
+			&iface.ID,
+			&iface.MacAddress,
+			&iface.AttachedNodeName,
+			&netplanSuccess,
+			&address,
+			&mtu,
+		)
+		if err != nil {
+			r.logger.WithError(err).Error("행 스캔 실패")
+			continue
+		}
+
+		iface.Status = entities.StatusConfigured
+		if address.Valid {
+			iface.Address = address.String
+		}
+		if mtu.Valid {
+			iface.MTU = int(mtu.Int64)
+		}
+		interfaces = append(interfaces, iface)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, errors.NewSystemError("결과 처리 중 오류", err)
+	}
+
+	return interfaces, nil
+}
+
 // UpdateInterfaceStatus는 인터페이스의 설정 상태를 업데이트합니다
 func (r *MySQLRepository) UpdateInterfaceStatus(ctx context.Context, interfaceID int, status entities.InterfaceStatus) error {
 	var netplanSuccess int
