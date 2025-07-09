@@ -24,7 +24,7 @@ type DeleteNetworkOutput struct {
 
 // DeleteNetworkUseCase는 고아 인터페이스를 감지하고 삭제하는 유스케이스입니다
 type DeleteNetworkUseCase struct {
-	repository    interfaces.NetworkInterfaceRepository
+	osDetector    interfaces.OSDetector
 	rollbacker    interfaces.NetworkRollbacker
 	namingService *services.InterfaceNamingService
 	logger        *logrus.Logger
@@ -32,13 +32,13 @@ type DeleteNetworkUseCase struct {
 
 // NewDeleteNetworkUseCase는 새로운 DeleteNetworkUseCase를 생성합니다
 func NewDeleteNetworkUseCase(
-	repository interfaces.NetworkInterfaceRepository,
+	osDetector interfaces.OSDetector,
 	rollbacker interfaces.NetworkRollbacker,
 	namingService *services.InterfaceNamingService,
 	logger *logrus.Logger,
 ) *DeleteNetworkUseCase {
 	return &DeleteNetworkUseCase{
-		repository:    repository,
+		osDetector:    osDetector,
 		rollbacker:    rollbacker,
 		namingService: namingService,
 		logger:        logger,
@@ -51,13 +51,29 @@ func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetwork
 		"node_name": input.NodeName,
 	}).Debug("고아 인터페이스 삭제 프로세스 시작")
 
+	osType, err := uc.osDetector.DetectOS()
+	if err != nil {
+		return nil, fmt.Errorf("OS 감지 실패: %w", err)
+	}
+
+	switch osType {
+	case interfaces.OSTypeUbuntu:
+		return uc.executeNetplanCleanup(ctx, input)
+	case interfaces.OSTypeRHEL:
+		return uc.executeNmcliCleanup(ctx, input)
+	default:
+		uc.logger.WithField("os_type", osType).Warn("지원하지 않는 OS 타입이므로 고아 인터페이스 삭제를 건너뜁니다")
+		return &DeleteNetworkOutput{}, nil
+	}
+}
+
+// executeNetplanCleanup은 Netplan (Ubuntu) 환경의 고아 인터페이스를 정리합니다
+func (uc *DeleteNetworkUseCase) executeNetplanCleanup(ctx context.Context, input DeleteNetworkInput) (*DeleteNetworkOutput, error) {
 	output := &DeleteNetworkOutput{
 		DeletedInterfaces: []string{},
-		TotalDeleted:      0,
 		Errors:            []error{},
 	}
 
-	// 1. 고아 netplan 설정 파일 정리
 	orphanedFiles, err := uc.findOrphanedNetplanFiles(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("고아 netplan 파일 조회 실패: %w", err)
@@ -73,7 +89,6 @@ func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetwork
 		"orphaned_files": len(orphanedFiles),
 	}).Info("고아 netplan 파일 감지 완료 - 삭제 프로세스 시작")
 
-	// 2. 각 고아 netplan 파일 삭제 처리
 	for _, fileName := range orphanedFiles {
 		interfaceName := uc.extractInterfaceNameFromFile(fileName)
 		if err := uc.deleteNetplanFile(ctx, fileName, interfaceName); err != nil {
@@ -86,18 +101,65 @@ func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetwork
 		} else {
 			output.DeletedInterfaces = append(output.DeletedInterfaces, interfaceName)
 			output.TotalDeleted++
+		}
+	}
+	return output, nil
+}
+
+// executeNmcliCleanup은 nmcli (RHEL) 환경의 고아 인터페이스를 정리합니다
+func (uc *DeleteNetworkUseCase) executeNmcliCleanup(ctx context.Context, input DeleteNetworkInput) (*DeleteNetworkOutput, error) {
+	output := &DeleteNetworkOutput{
+		DeletedInterfaces: []string{},
+		Errors:            []error{},
+	}
+
+	connections, err := uc.namingService.ListNmcliConnectionNames(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("nmcli 연결 목록 조회 실패: %w", err)
+	}
+
+	var orphanedConnections []string
+	for _, connName := range connections {
+		if !strings.HasPrefix(connName, "multinic") {
+			continue
+		}
+
+		exists, err := uc.checkInterfaceExists(ctx, connName)
+		if err != nil {
 			uc.logger.WithFields(logrus.Fields{
-				"file_name":      fileName,
-				"interface_name": interfaceName,
-			}).Info("고아 netplan 파일 삭제 완료")
+				"connection_name": connName,
+				"error":           err,
+			}).Warn("인터페이스 존재 여부 확인 중 에러 발생")
+			continue
+		}
+
+		if !exists {
+			orphanedConnections = append(orphanedConnections, connName)
 		}
 	}
 
-	uc.logger.WithFields(logrus.Fields{
-		"total_deleted": output.TotalDeleted,
-		"total_errors":  len(output.Errors),
-	}).Info("고아 인터페이스 삭제 프로세스 완료")
+	if len(orphanedConnections) == 0 {
+		uc.logger.Debug("삭제 대상 고아 nmcli 연결이 없습니다")
+		return output, nil
+	}
 
+	uc.logger.WithFields(logrus.Fields{
+		"node_name":            input.NodeName,
+		"orphaned_connections": orphanedConnections,
+	}).Info("고아 nmcli 연결 감지 완료 - 삭제 프로세스 시작")
+
+	for _, connName := range orphanedConnections {
+		if err := uc.rollbacker.Rollback(ctx, connName); err != nil {
+			uc.logger.WithFields(logrus.Fields{
+				"connection_name": connName,
+				"error":           err,
+			}).Error("nmcli 연결 삭제 실패")
+			output.Errors = append(output.Errors, fmt.Errorf("nmcli 연결 %s 삭제 실패: %w", connName, err))
+		} else {
+			output.DeletedInterfaces = append(output.DeletedInterfaces, connName)
+			output.TotalDeleted++
+		}
+	}
 	return output, nil
 }
 

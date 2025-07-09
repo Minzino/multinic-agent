@@ -6,6 +6,7 @@ import (
 	"multinic-agent-v2/internal/domain/entities"
 	"multinic-agent-v2/internal/domain/interfaces"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -79,6 +80,25 @@ func (s *InterfaceNamingService) GetMacAddressForInterface(interfaceName string)
 	}
 
 	return matches[1], nil
+}
+
+// ListNmcliConnectionNames는 nmcli에 설정된 모든 연결 프로파일 이름을 반환합니다.
+func (s *InterfaceNamingService) ListNmcliConnectionNames(ctx context.Context) ([]string, error) {
+	output, err := s.commandExecutor.ExecuteWithTimeout(ctx, 10*time.Second, "nmcli", "-t", "-f", "NAME", "c", "show")
+	if err != nil {
+		return nil, fmt.Errorf("nmcli connection show 실행 실패: %w", err)
+	}
+
+	lines := strings.Split(string(output), "\n")
+	var names []string
+	for _, line := range lines {
+		name := strings.TrimSpace(line)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+
+	return names, nil
 }
 
 // ListNetplanFiles는 지정된 디렉토리의 netplan 파일 목록을 반환합니다
