@@ -26,17 +26,16 @@ echo -e "네임스페이스: ${BLUE}${NAMESPACE}${NC}"
 echo -e "릴리즈명: ${BLUE}${RELEASE_NAME}${NC}"
 echo -e "클러스터 노드: ${BLUE}${ALL_NODES[*]}${NC}"
 
-# 1. 기존 배포 정리
-echo -e "\n${BLUE}🧹 1단계: 기존 배포 정리${NC}"
-if helm list -n $NAMESPACE | grep -q $RELEASE_NAME; then
-    echo -e "${YELLOW}기존 릴리즈 삭제 중...${NC}"
-    helm uninstall $RELEASE_NAME -n $NAMESPACE
-    echo -e "${GREEN}✓ 기존 릴리즈 삭제 완료${NC}"
+# 1. 네임스페이스 생성
+echo -e "\n${BLUE}📁 1단계: 네임스페이스 생성${NC}"
+if kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -; then
+    echo -e "${GREEN}✓ 네임스페이스 생성/확인 완료${NC}"
 else
-    echo -e "${GREEN}✓ 기존 릴리즈 없음${NC}"
+    echo -e "${RED}✗ 네임스페이스 생성 실패${NC}"
+    exit 1
 fi
 
-# 2. BuildKit 설정 확인 및 설치
+# 2. BuildKit 설정 확인
 echo -e "\n${BLUE}🔧 2단계: BuildKit 설정 확인${NC}"
 if ! command -v buildkitd &> /dev/null; then
     echo -e "${YELLOW}BuildKit이 설치되어 있지 않습니다. 설치를 시작합니다...${NC}"
@@ -232,19 +231,10 @@ else
     exit 1
 fi
 
-# 10. 네임스페이스 생성
-echo -e "\n${BLUE}📁 10단계: 네임스페이스 생성${NC}"
-if kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -; then
-    echo -e "${GREEN}✓ 네임스페이스 생성/확인 완료${NC}"
-else
-    echo -e "${RED}✗ 네임스페이스 생성 실패${NC}"
-    exit 1
-fi
-
-# 11. MultiNIC Agent 배포
-echo -e "\n${BLUE}🚀 11단계: MultiNIC Agent 배포${NC}"
-echo -e "${YELLOW}새로운 릴리즈를 설치합니다...${NC}"
-if helm install $RELEASE_NAME ./deployments/helm \
+# 10. MultiNIC Agent 배포 (업그레이드 또는 신규 설치)
+echo -e "\n${BLUE}🚀 10단계: MultiNIC Agent 배포${NC}"
+echo -e "${YELLOW}Helm으로 업그레이드 또는 신규 설치를 진행합니다...${NC}"
+if helm upgrade --install $RELEASE_NAME ./deployments/helm \
     --namespace $NAMESPACE \
     --set image.repository=docker.io/library/$IMAGE_NAME \
     --set image.tag=$IMAGE_TAG \
@@ -256,8 +246,8 @@ else
     exit 1
 fi
 
-# 12. DaemonSet Pod 상태 확인
-echo -e "\n${BLUE}🔍 12단계: DaemonSet Pod 상태 확인${NC}"
+# 11. DaemonSet Pod 상태 확인
+echo -e "\n${BLUE}🔍 11단계: DaemonSet Pod 상태 확인${NC}"
 echo -e "${YELLOW}DaemonSet Pod들이 Ready 상태가 될 때까지 대기중...${NC}"
 if kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=multinic-agent -n $NAMESPACE --timeout=300s; then
     echo -e "${GREEN}✓ 모든 Agent Pod가 성공적으로 실행중입니다${NC}"
@@ -265,8 +255,8 @@ else
     echo -e "${YELLOW}⚠️  일부 Pod의 Ready 상태 확인 타임아웃. 수동으로 확인해주세요.${NC}"
 fi
 
-# 13. 전체 상태 확인
-echo -e "\n${BLUE}📊 13단계: 전체 시스템 상태 확인${NC}"
+# 12. 전체 상태 확인
+echo -e "\n${BLUE}📊 12단계: 전체 시스템 상태 확인${NC}"
 echo "=================================================="
 echo "📋 MultiNIC Agent DaemonSet 상태:"
 kubectl get daemonset -n $NAMESPACE -l app.kubernetes.io/name=multinic-agent
@@ -284,8 +274,8 @@ echo "📋 서비스 및 기타 리소스:"
 kubectl get svc,secret,serviceaccount,clusterrole,clusterrolebinding -n $NAMESPACE -l app.kubernetes.io/name=multinic-agent
 echo "=================================================="
 
-# 14. 헬스체크
-echo -e "\n${BLUE}🩺 14단계: 헬스체크${NC}"
+# 13. 헬스체크
+echo -e "\n${BLUE}🩺 13단계: 헬스체크${NC}"
 POD=$(kubectl get pods -n $NAMESPACE -l app.kubernetes.io/name=multinic-agent -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 if [ ! -z "$POD" ]; then
     echo -e "${YELLOW}첫 번째 Pod ($POD) 로그 확인 (최근 10줄):${NC}"
@@ -293,7 +283,7 @@ if [ ! -z "$POD" ]; then
     
     echo ""
     echo -e "${YELLOW}헬스체크 엔드포인트 테스트:${NC}"
-    echo -e "${BLUE}다음 명령어로 헬스체크를 확인할 수 있습니다:${NC}"
+echo -e "${BLUE}다음 명령어로 헬스체크를 확인할 수 있습니다:${NC}"
     echo "kubectl port-forward $POD 8080:8080 -n $NAMESPACE"
     echo "curl http://localhost:8080/"
 else
