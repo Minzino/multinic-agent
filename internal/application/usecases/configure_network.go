@@ -199,6 +199,9 @@ func (uc *ConfigureNetworkUseCase) syncConfiguredInterfaces(ctx context.Context,
 		}
 
 		// Read and parse the YAML file
+		if !uc.fileSystem.Exists(file) {
+			continue
+		}
 		content, err := uc.fileSystem.ReadFile(file)
 		if err != nil {
 			uc.logger.WithError(err).WithField("file", file).Warn("Netplan 파일 읽기 실패")
