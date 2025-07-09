@@ -131,7 +131,7 @@ func (c *Container) initializeUseCases() error {
 	}
 
 	// 네트워크 설정 유스케이스
-	c.configureNetworkUseCase = usecases.NewConfigureNetworkUseCase(
+		c.configureNetworkUseCase = usecases.NewConfigureNetworkUseCase(
 		c.networkRepository,
 		configurer,
 		rollbacker,
@@ -141,7 +141,7 @@ func (c *Container) initializeUseCases() error {
 
 	// 네트워크 삭제 유스케이스
 	c.deleteNetworkUseCase = usecases.NewDeleteNetworkUseCase(
-		c.networkRepository,
+		c.osDetector,
 		rollbacker,
 		c.namingService,
 		c.logger,

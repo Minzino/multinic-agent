@@ -61,3 +61,21 @@
 - **코드 변경 불필요**: 현재 `RHELAdapter`의 구현은 대상 서버 환경과 완벽하게 일치하며, 추가적인 코드 수정은 필요하지 않음.
 - 이전 작업(SUSE 오인 수정 및 RHEL 지원 추가)이 성공적으로 완료되었음을 최종 확인.
 - `GEMINI.md`에 검증 내용 기록 완료.
+
+### RHEL 고아 인터페이스 삭제 기능 구현 (2025-07-09)
+
+**1. 문제점:**
+- 기존 '고아 인터페이스 삭제' 로직은 Ubuntu(Netplan)의 `.yaml` 파일 기반으로 구현되어 있어, RHEL(nmcli) 환경에서는 동작하지 않는 기능적 허점이 있었음.
+- 이로 인해 RHEL 노드에서는 DB에서 인터페이스가 삭제되어도 시스템에 불필요한 `nmcli` 연결 프로파일이 계속 남게 됨.
+
+**2. 구현 내용:**
+- **`DeleteNetworkUseCase` 리팩터링**: OS를 감지하여 Ubuntu와 RHEL에 맞는 각기 다른 삭제 로직을 수행하도록 `switch` 문으로 분기 처리.
+- **RHEL 삭제 로직 구현**: 
+  1. `nmcli -t -f NAME c show` 명령으로 시스템의 모든 연결 프로파일 목록을 조회하는 `ListNmcliConnectionNames` 메소드를 `InterfaceNamingService`에 추가.
+  2. `multinic`으로 시작하는 프로파일들을 필터링.
+  3. 각 프로파일에 대해 `ip addr show {profile_name}` 명령을 실행하여 실제 네트워크 장치의 존재 여부를 확인.
+  4. 프로파일은 있지만 실제 장치가 없는 경우를 '고아'로 판단하여, `rollbacker.Rollback` (내부적으로 `nmcli connection delete` 실행)을 호출하여 해당 프로파일을 삭제.
+- **의존성 주입 수정**: `container.go`를 수정하여 `DeleteNetworkUseCase` 생성 시 `OSDetector`를 주입하도록 변경.
+
+**3. 테스트 관련:**
+- 사용자 요청에 따라, 반복적인 `testify/mock` 프레임워크의 오류로 인해 테스트 코드 없이 기능 구현을 우선적으로 완료함. 향후 테스트 프레임워크 안정화 후 테스트 코드 보강이 필요함.
