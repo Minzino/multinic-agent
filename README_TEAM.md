@@ -170,7 +170,7 @@ sequenceDiagram
 
 ### 운영체제
 - **Ubuntu 18.04+** (Netplan)
-- **SUSE Linux Enterprise 15+** (Wicked)
+- **SUSE Linux 9.4** (ifup/down)
 
 ### 인터페이스 관리
 - **최대 10개**: multinic0 ~ multinic9
