@@ -28,6 +28,11 @@ func (m *MockNetworkInterfaceRepository) GetPendingInterfaces(ctx context.Contex
 	return args.Get(0).([]entities.NetworkInterface), args.Error(1)
 }
 
+func (m *MockNetworkInterfaceRepository) GetConfiguredInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
+	args := m.Called(ctx, nodeName)
+	return args.Get(0).([]entities.NetworkInterface), args.Error(1)
+}
+
 func (m *MockNetworkInterfaceRepository) UpdateInterfaceStatus(ctx context.Context, interfaceID int, status entities.InterfaceStatus) error {
 	args := m.Called(ctx, interfaceID, status)
 	return args.Error(0)
@@ -130,6 +135,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			},
 			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
+				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
 			},
 			expectedOutput: &ConfigureNetworkOutput{
 				ProcessedCount: 0,
@@ -152,6 +158,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				}
 
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
+				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
 
 				// 인터페이스 이름 생성을 위한 파일 시스템 mock
 				fs.On("Exists", "/sys/class/net/multinic0").Return(false)
@@ -190,6 +197,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				}
 
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
+				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
 
 				// 인터페이스 이름 생성을 위한 파일 시스템 mock
 				fs.On("Exists", "/sys/class/net/multinic0").Return(false)
@@ -226,6 +234,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				}
 
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
+				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
 
 				// 인터페이스 이름 생성을 위한 파일 시스템 mock
 				fs.On("Exists", "/sys/class/net/multinic0").Return(false)
@@ -264,6 +273,49 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 			expectedOutput: nil,
 			wantError:      true,
 		},
+		{
+			name: "설정 동기화 - 변경된 IP와 MTU를 감지하고 수정",
+			input: ConfigureNetworkInput{
+				NodeName: "test-node",
+			},
+			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
+				// 1. No pending interfaces
+				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
+
+				// 2. One configured interface in DB with correct data
+				dbIface := entities.NetworkInterface{
+					ID:         1,
+					MacAddress: "00:11:22:33:44:55",
+					Address:    "1.1.1.1", // DB에는 CIDR 없이 순수 IP만 저장
+					MTU:        1500,
+				}
+				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{dbIface}, nil)
+
+				// 3. A netplan file on disk with drifted data
+				fileName := "/etc/netplan/90-multinic0.yaml"
+				driftedYAML := `network:
+  version: 2
+  ethernets:
+    multinic0:
+      match:
+        macaddress: "00:11:22:33:44:55"
+      addresses: ["1.1.1.1/24"]
+      mtu: 1400`
+				fs.On("ListFiles", "/etc/netplan").Return([]string{fileName}, nil)
+				fs.On("ReadFile", fileName).Return([]byte(driftedYAML), nil)
+
+				// 4. Expect Configure to be called with the correct DB data to fix the drift
+				configurer.On("Configure", mock.Anything, dbIface, mock.MatchedBy(func(name entities.InterfaceName) bool {
+					return name.String() == "multinic0"
+				})).Return(nil)
+			},
+			expectedOutput: &ConfigureNetworkOutput{
+				ProcessedCount: 0, // No pending interfaces processed
+				FailedCount:    0,
+				TotalCount:     0,
+			},
+			wantError: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -293,6 +345,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				mockConfigurer,
 				mockRollbacker,
 				namingService,
+				mockFS, // Add mockFS here
 				logger,
 			)
 
@@ -384,6 +437,7 @@ func TestConfigureNetworkUseCase_processInterface(t *testing.T) {
 				mockConfigurer,
 				mockRollbacker,
 				namingService,
+				mockFS, // Add mockFS here
 				logger,
 			)
 
