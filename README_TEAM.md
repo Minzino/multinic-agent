@@ -250,17 +250,17 @@ sequenceDiagram
         end
         
         Note over Agent: 고아 인터페이스 삭제 처리 (신규)
-        Agent->>OS: 현재 multinic* 인터페이스 스캔
-        OS-->>Agent: 인터페이스 목록 + MAC 주소
-        Agent->>DB: 활성 인터페이스 조회
-        DB-->>Agent: DB 인터페이스 목록
-        
-        Agent->>Agent: MAC 주소 기반 비교
-        alt 고아 인터페이스 발견
-            Agent->>OS: 설정 파일 제거
-            Agent->>NIC: 인터페이스 정리
-            Note over Agent: 중간 슬롯 자동 재사용 가능
-        end
+    Agent->>OS: /etc/netplan/의 multinic* 파일 스캔
+    OS-->>Agent: 설정 파일 목록 반환
+    loop 각 설정 파일에 대해
+        Agent->>OS: ip addr 명령어로 인터페이스 존재 확인
+        OS-->>Agent: 존재 여부 응답
+    end
+    alt 설정 파일은 있으나 인터페이스가 없는 경우 (고아 발견)
+        Agent->>OS: 해당 설정 파일 제거
+        Agent->>OS: netplan apply로 설정 정리
+        Note over Agent: 시스템 정합성 확보
+    end
     end
 ```
 
