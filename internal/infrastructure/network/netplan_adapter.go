@@ -156,11 +156,25 @@ func (a *NetplanAdapter) generateNetplanConfig(iface entities.NetworkInterface, 
 		"set-name": interfaceName,
 	}
 
-	// address와 mtu는 항상 함께 설정
-	if iface.Address != "" && iface.MTU > 0 {
-		ethernetConfig["dhcp4"] = false
-		ethernetConfig["addresses"] = []string{iface.Address}
-		ethernetConfig["mtu"] = iface.MTU
+	// Static IP 설정: Address와 CIDR이 모두 있어야 함
+	if iface.Address != "" && iface.CIDR != "" {
+		// CIDR에서 접두사(prefix) 추출 (e.g., "10.0.0.0/24" -> "24")
+		parts := strings.Split(iface.CIDR, "/")
+		if len(parts) == 2 {
+			prefix := parts[1]
+			fullAddress := fmt.Sprintf("%s/%s", iface.Address, prefix)
+
+			ethernetConfig["dhcp4"] = false
+			ethernetConfig["addresses"] = []string{fullAddress}
+			if iface.MTU > 0 {
+				ethernetConfig["mtu"] = iface.MTU
+			}
+		} else {
+			a.logger.WithFields(logrus.Fields{
+				"address": iface.Address,
+				"cidr":    iface.CIDR,
+			}).Warn("잘못된 CIDR 형식, IP 설정을 건너뜁니다.")
+		}
 	}
 
 	config := map[string]interface{}{

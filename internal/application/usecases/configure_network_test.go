@@ -155,6 +155,9 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 					MacAddress:       "00:11:22:33:44:55",
 					AttachedNodeName: "test-node",
 					Status:           entities.StatusPending,
+					Address:          "10.10.10.10",
+					CIDR:             "10.10.10.0/24",
+					MTU:              1500,
 				}
 
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
@@ -194,6 +197,9 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 					MacAddress:       "00:11:22:33:44:55",
 					AttachedNodeName: "test-node",
 					Status:           entities.StatusPending,
+					Address:          "10.10.10.10",
+					CIDR:             "10.10.10.0/24",
+					MTU:              1500,
 				}
 
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
@@ -231,6 +237,9 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 					MacAddress:       "00:11:22:33:44:55",
 					AttachedNodeName: "test-node",
 					Status:           entities.StatusPending,
+					Address:          "10.10.10.10",
+					CIDR:             "10.10.10.0/24",
+					MTU:              1500,
 				}
 
 				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
@@ -286,23 +295,26 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				dbIface := entities.NetworkInterface{
 					ID:         1,
 					MacAddress: "00:11:22:33:44:55",
-					Address:    "1.1.1.1", // DB에는 CIDR 없이 순수 IP만 저장
+					Address:    "1.1.1.1",
+					CIDR:       "1.1.1.0/24",
 					MTU:        1500,
 				}
 				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{dbIface}, nil)
 
 				// 3. A netplan file on disk with drifted data
 				fileName := "/etc/netplan/90-multinic0.yaml"
+				// Note: The address in YAML has the prefix, but the DB Address field does not.
 				driftedYAML := `network:
   version: 2
   ethernets:
     multinic0:
       match:
         macaddress: "00:11:22:33:44:55"
-      addresses: ["1.1.1.1/24"]
-      mtu: 1400`
+      addresses: ["1.1.1.2/24"] # Drifted IP
+      mtu: 1400`               // Drifted MTU
 				fs.On("ListFiles", "/etc/netplan").Return([]string{fileName}, nil)
 				fs.On("ReadFile", fileName).Return([]byte(driftedYAML), nil)
+				fs.On("Exists", fileName).Return(true)
 
 				// 4. Expect Configure to be called with the correct DB data to fix the drift
 				configurer.On("Configure", mock.Anything, dbIface, mock.MatchedBy(func(name entities.InterfaceName) bool {
