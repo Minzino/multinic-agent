@@ -13,7 +13,7 @@ RUN go build -o multinic-agent cmd/agent/main.go
 # 실행 스테이지
 FROM alpine:3.18
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates networkmanager
 
 WORKDIR /app
 COPY --from=builder /app/multinic-agent .
