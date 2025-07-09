@@ -61,166 +61,68 @@ graph TB
 
 ## 배포 가이드
 
-### **배포 전 필수 설정**
+### 1. 사전 준비
+- **필수 도구**: `nerdctl`, `helm`, `kubectl`, `sshpass`가 설치되어 있어야 합니다.
+- **DB 정보**: 연결할 데이터베이스의 `host`, `user`, `password`, `name`을 확인해야 합니다.
+- **노드 접근**: 스크립트를 실행하는 위치에서 모든 Kubernetes 노드로 SSH 접근이 가능해야 합니다.
 
-배포하기 전에 다음 정보들을 준비하고 설정 파일을 수정해야 합니다:
+### 2. 배포 절차
 
-#### 1. SSH 접근 정보 설정
-```bash
-# deploy.sh에서 사용할 SSH 비밀번호
-export SSH_PASSWORD="your_actual_ssh_password"
-```
-
-#### 2. 데이터베이스 연결 정보 설정
-`/deployments/helm/values.yaml` 파일을 수정하세요:
+#### 1단계: `values.yaml` 파일 수정
+배포에 필요한 주요 설정은 `deployments/helm/values.yaml` 파일에서 관리합니다. 특히 **데이터베이스 연결 정보는 반드시 실제 환경에 맞게 수정해야 합니다.**
 
 ```yaml
-# 수정 필요한 부분
+# deployments/helm/values.yaml
+
 database:
   host: "10.0.0.100"              # ← 실제 DB 호스트 IP
-  port: "3306"                    # ← 실제 DB 포트 
+  port: "3306"                    # ← 실제 DB 포트
   user: "multinic_user"           # ← 실제 DB 사용자명
   password: "your_db_password"    # ← 실제 DB 비밀번호
   name: "multinic_database"       # ← 실제 DB 이름
 
 agent:
-  pollInterval: "30s"             # ← 원하는 폴링 간격 (기본: 30초)
-  logLevel: "info"                # ← 로그 레벨 (debug/info/warn/error)
+  pollInterval: "30s"             # ← 에이전트 폴링 간격
+  logLevel: "info"                # ← 로그 레벨 (debug, info, warn, error)
 ```
 
-#### 3. 빠른 설정 체크리스트
-- [ ] SSH 비밀번호 확인 및 모든 노드 접근 가능 확인
-- [ ] DB 호스트 IP 및 포트 확인
-- [ ] DB 사용자명/비밀번호 확인  
-- [ ] DB 이름 확인
-- [ ] 폴링 간격 결정 (기본 30초 권장)
-- [ ] values.yaml 파일 수정 완료
+#### 2단계: 원클릭 배포 스크립트 실행
+`values.yaml` 수정 후, 프로젝트 루트에서 아래 명령어를 실행합니다. 스크립트 실행 시 `SSH_PASSWORD` 환경 변수를 직접 전달해야 합니다.
 
-### **사전 준비사항**
-- **필수 도구**: nerdctl, helm, kubectl, sshpass
-- **권한**: 모든 노드 SSH 접근 권한
-- **네트워크**: 클러스터 내 데이터베이스 접근 가능
-
-### 1. **원클릭 배포 (권장)**
 ```bash
-# 1단계: SSH 비밀번호 설정
-export SSH_PASSWORD="your_actual_ssh_password"
-
-# 2단계: values.yaml 수정 완료 후 배포 실행
-./scripts/deploy.sh
-
-# 또는 환경변수로 모든 설정을 한번에 지정
-NAMESPACE=multinic-system \
-IMAGE_TAG=0.6.0 \
-SSH_PASSWORD=your_password \
-./scripts/deploy.sh
+# 기본 설정으로 배포
+SSH_PASSWORD="your_actual_ssh_password" ./scripts/deploy.sh
 ```
 
-> **중요**: 배포 전에 반드시 `deployments/helm/values.yaml`에서 DB 설정을 수정하세요!
+`IMAGE_TAG`나 `NAMESPACE` 등 다른 변수를 변경하고 싶다면, 아래와 같이 명령어 앞에 추가합니다.
 
-### 2. **수동 Helm 배포**
 ```bash
-# 이미지 빌드
-nerdctl --namespace=k8s.io build -t multinic-agent:0.6.0 .
-
-# 모든 노드에 이미지 배포 (각 노드마다 실행)
-nerdctl --namespace=k8s.io save multinic-agent:0.6.0 -o multinic-agent.tar
-scp multinic-agent.tar node:/tmp/
-ssh node "sudo nerdctl --namespace=k8s.io load -i /tmp/multinic-agent.tar"
-
-# Helm 설치
-helm install multinic-agent ./deployments/helm \
-  --set database.host=YOUR_DB_HOST \
-  --set database.password=YOUR_DB_PASSWORD \
-  --set image.repository=multinic-agent \
-  --set image.tag=0.6.0 \
-  --set image.pullPolicy=Never
+# 네임스페이스와 이미지 태그를 지정하여 배포
+NAMESPACE=multinic-dev IMAGE_TAG=0.6.1 SSH_PASSWORD="your_password" ./scripts/deploy.sh
 ```
 
-### 3.**배포 상태 확인**
+> **중요**: `deploy.sh` 스크립트는 기존에 설치된 Helm 릴리즈를 제거하고 새로 설치하므로 주의가 필요합니다.
+
+### 3. 배포 상태 확인
+배포 후 아래 명령어를 사용하여 DaemonSet과 Pod의 상태를 확인할 수 있습니다.
+
 ```bash
 # DaemonSet 상태 확인
-kubectl get daemonset -l app.kubernetes.io/name=multinic-agent
+kubectl get daemonset -n <NAMESPACE> -l app.kubernetes.io/name=multinic-agent
 
 # 모든 노드의 Pod 상태 확인
-kubectl get pods -l app.kubernetes.io/name=multinic-agent -o wide
+kubectl get pods -n <NAMESPACE> -l app.kubernetes.io/name=multinic-agent -o wide
 
-# 노드별 Pod 분포 확인
-kubectl get pods -l app.kubernetes.io/name=multinic-agent \
-  -o jsonpath='{range .items[*]}{.spec.nodeName}{"\t"}{.metadata.name}{"\t"}{.status.phase}{"\n"}{end}' | column -t
-
-# 헬스체크
-kubectl port-forward <pod-name> 8080:8080
+# 헬스체크 (특정 Pod의 포트를 로컬로 포워딩)
+kubectl port-forward <pod-name> -n <NAMESPACE> 8080:8080
 curl http://localhost:8080/
 ```
+*(여기서 `<NAMESPACE>`와 `<pod-name>`은 실제 배포 환경에 맞게 변경)*
 
-### 4.**환경 변수 설정**
-```bash
-# 배포 스크립트 환경 변수
-export IMAGE_NAME="multinic-agent"
-export IMAGE_TAG="0.6.0"
-export NAMESPACE="multinic-system"
-export RELEASE_NAME="multinic-controller"
-export SSH_PASSWORD="your_ssh_password"
-
-# 실행
-./scripts/deploy.sh
-```
-
-### 5.**문제 해결**
-```bash
-# Agent 로그 확인
-kubectl logs -f daemonset/multinic-agent
-
-# 특정 노드 Pod 로그 확인
-kubectl logs <pod-name> --tail=50
-
-# DaemonSet 이벤트 확인
-kubectl describe daemonset multinic-agent
-
-# 완전 삭제
-helm uninstall multinic-agent
-kubectl delete namespace multinic-system
-```
-
-### 6.**고급 배포 옵션**
-```bash
-# 개발 환경 배포
-NAMESPACE=dev IMAGE_TAG=latest ./scripts/deploy.sh
-
-# 프로덕션 환경 배포
-NAMESPACE=production \
-IMAGE_TAG=0.6.0 \
-RELEASE_NAME=multinic-prod \
-./scripts/deploy.sh
-
-# 특정 노드만 타겟팅 (tolerations 활용)
-helm install multinic-agent ./deployments/helm \
-  --set nodeSelector.node-role=multinic-enabled
-```
-
-### 7.**실제 배포 예시**
-```bash
-# 실제 환경 예시 - 이 값들을 실제 환경에 맞게 수정하세요
-export SSH_PASSWORD="mypassword123"
-
-# values.yaml 파일 수정 예시:
-# database:
-#   host: "10.1.1.100"
-#   port: "3306" 
-#   user: "multinic_user"
-#   password: "dbpass123"
-#   name: "openstack_multinic"
-# agent:
-#   pollInterval: "30s"
-#   logLevel: "info"
-
-# 배포 실행
-./scripts/deploy.sh
-
-# 배포 확인
-kubectl get pods -l app.kubernetes.io/name=multinic-agent -o wide
-```
+### 4. 문제 해결
+- **로그 확인**: `kubectl logs -f daemonset/multinic-agent -n <NAMESPACE>`
+- **Pod 이벤트 확인**: `kubectl describe pod <pod-name> -n <NAMESPACE>`
+- **완전 삭제**: `helm uninstall multinic-agent -n <NAMESPACE>`
 
 ## 작동 원리
 
