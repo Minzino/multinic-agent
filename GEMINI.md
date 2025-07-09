@@ -70,7 +70,7 @@
 
 **2. 구현 내용:**
 - **`DeleteNetworkUseCase` 리팩터링**: OS를 감지하여 Ubuntu와 RHEL에 맞는 각기 다른 삭제 로직을 수행하도록 `switch` 문으로 분기 처리.
-- **RHEL 삭제 로직 구현**: 
+- **RHEL 삭제 로직 구현**:
   1. `nmcli -t -f NAME c show` 명령으로 시스템의 모든 연결 프로파일 목록을 조회하는 `ListNmcliConnectionNames` 메소드를 `InterfaceNamingService`에 추가.
   2. `multinic`으로 시작하는 프로파일들을 필터링.
   3. 각 프로파일에 대해 `ip addr show {profile_name}` 명령을 실행하여 실제 네트워크 장치의 존재 여부를 확인.
@@ -79,3 +79,46 @@
 
 **3. 테스트 관련:**
 - 수차례의 시도 끝에 `testify/mock` 프레임워크의 모의 객체 설정 문제를 해결하고, RHEL과 Ubuntu 시나리오를 모두 포함하는 테스트 코드를 성공적으로 작성 및 통과함.
+
+### Netplan 정적 IP 설정 및 드리프트 감지 개선 (2025-07-09)
+
+**1. 문제 발단 및 초기 진단:**
+- 사용자로부터 Netplan 설정 실패(`netplan try` exit status 1) 및 불필요한 경고 로그(`Netplan 파일 읽기 실패`) 발생 보고.
+- 초기 진단: `dhcp4: false`와 `addresses` 부재로 인한 Netplan 설정 오류, 그리고 `syncConfiguredInterfaces`의 파일 존재 여부 확인 로직 미흡.
+
+**2. 초기 수정 및 오해:**
+- 첫 번째 시도: `dhcp4: true`로의 폴백 로직 추가.
+- 사용자 피드백: `dhcp4`는 항상 `false`여야 함을 확인. 초기 가설이 프로젝트 제약사항과 불일치함을 인지.
+
+**3. 근본 원인 재파악 (CIDR 누락):**
+- DB 조회(`SELECT id, macaddress, attached_node_name, address, mtu FROM multi_interface WHERE id = 22;`) 결과, `address`와 `mtu`는 존재함을 확인.
+- 새로운 가설: Netplan은 `address` 필드에 CIDR 형식(`IP/Prefix`)을 요구하지만, DB에서는 IP만 제공하고 있었음.
+- 사용자 피드백(`multi_interface.subnet_id`와 `multi_subnet` 연결)을 통해 `multi_subnet` 테이블에 `cidr` 정보가 있음을 확인.
+- `DESCRIBE multi_subnet;` 명령으로 `multi_subnet` 테이블에 `cidr` 컬럼이 존재함을 최종 확인.
+
+**4. 코드 수정 및 기능 구현:**
+- **`internal/domain/entities/network_interface.go`**: `NetworkInterface` 엔티티에 `CIDR` 필드 추가.
+- **`internal/infrastructure/persistence/mysql_repository.go`**:
+    - `GetPendingInterfaces`, `GetConfiguredInterfaces`, `GetInterfaceByID`, `GetActiveInterfaces` 함수 수정.
+    - `multi_interface`와 `multi_subnet` 테이블을 `subnet_id`로 `LEFT JOIN`하여 `ms.cidr` 컬럼을 조회하도록 SQL 쿼리 변경.
+    - 조회된 `cidr` 값을 `NetworkInterface.CIDR` 필드에 스캔하도록 로직 추가.
+- **`internal/infrastructure/network/netplan_adapter.go`**:
+    - `generateNetplanConfig` 함수 수정.
+    - `iface.Address`와 `iface.CIDR`를 사용하여 `IP/Prefix` 형식의 완전한 주소를 생성하도록 로직 변경.
+    - `dhcp4: false`는 `Address`와 `CIDR`이 모두 유효할 때만 설정되도록 수정.
+- **`internal/application/usecases/configure_network.go`**:
+    - `syncConfiguredInterfaces` 함수 내 드리프트 감지 로직 개선.
+    - Netplan 파일에서 IP뿐만 아니라 CIDR 정보도 추출하도록 파싱 로직 수정.
+    - `isDrifted` 조건에 `dbIface.CIDR != fileCIDR` 비교 추가하여 CIDR 불일치도 감지하도록 개선.
+    - `uc.fileSystem.Exists(file)` 체크 추가하여 불필요한 "파일 읽기 실패" 경고 로그 제거.
+
+**5. 테스트 및 디버깅 여정:**
+- 코드 수정 후 `go test ./internal/...` 실행 시 테스트 실패 예상.
+- **`internal/application/usecases/configure_network_test.go`**: `NetworkInterface` 구조체 변경에 따라 Mock 데이터 및 테스트 케이스 업데이트.
+- **`internal/domain/entities/network_interface_test.go`**: `NetworkInterface` 구조체 리터럴에 `CIDR` 필드 추가하여 컴파일 에러 해결.
+- 모든 단위 테스트 성공적으로 통과 확인.
+
+**6. 작업 완료:**
+- 모든 코드 변경 및 테스트 완료.
+- `GEMINI.md`에 상세 작업 내용 기록.
+- Git 저장소에 변경 사항 푸시 완료.
