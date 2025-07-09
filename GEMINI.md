@@ -1,3 +1,4 @@
-### Dockerfile 최적화 및 문서 개선
-- `Dockerfile`: `COPY . .` 명령을 `cmd`, `internal` 등 특정 디렉토리만 복사하도록 수정하여 Docker 이미지 빌드 캐시 효율을 개선함.
-- `README_TEAM.md`: 배포 가이드를 대폭 수정하여, 불필요한 `export` 안내를 제거하고 `VAR=value ./script.sh` 방식의 실행을 안내하도록 단순화 및 명료화함.
+
+### 린터 지적사항 수정
+- `golangci-lint` (errcheck)가 보고한 문제를 해결함.
+- `internal/infrastructure/network/netplan_adapter.go`: 설정 테스트 실패 시 롤백을 위해 설정 파일을 삭제하는 과정에서 발생하는 에러를 로그에 기록하도록 수정하여, 잠재적인 자동 롤백 실패를 추적할 수 있도록 개선함.
