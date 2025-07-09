@@ -231,12 +231,18 @@ else
     exit 1
 fi
 
-# 10. MultiNIC Agent 배포 (업그레이드 또는 신규 설치)echo -e "\n${BLUE}🚀 10단계: MultiNIC Agent 배포${NC}"echo -e "${YELLOW}기존 Helm 릴리즈를 정리합니다 (오류는 무시됩니다)...${NC}"helm uninstall $RELEASE_NAME --namespace $NAMESPACE &> /dev/null || trueecho -e "${YELLOW}Helm으로 업그레이드 또는 신규 설치를 진행합니다...${NC}"if helm upgrade --install $RELEASE_NAME ./deployments/helm \
+# 10. MultiNIC Agent 배포 (업그레이드 또는 신규 설치)
+echo -e "\n${BLUE}🚀 10단계: MultiNIC Agent 배포${NC}"
+echo -e "${YELLOW}기존 Helm 릴리즈를 정리합니다 (오류는 무시됩니다)...${NC}"
+helm uninstall $RELEASE_NAME --namespace $NAMESPACE &> /dev/null || true
+echo -e "${YELLOW}Helm으로 업그레이드 또는 신규 설치를 진행합니다...${NC}"
+if helm upgrade --install $RELEASE_NAME ./deployments/helm \
     --namespace $NAMESPACE \
     --set image.repository=docker.io/library/$IMAGE_NAME \
     --set image.tag=$IMAGE_TAG \
     --set image.pullPolicy=Never \
     --wait --timeout=5m --debug; then
+
     echo -e "${GREEN}✓ MultiNIC Agent 배포 완료${NC}"
 else
     echo -e "${RED}✗ MultiNIC Agent 배포 실패${NC}"
