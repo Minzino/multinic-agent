@@ -6,8 +6,12 @@ import (
 	"multinic-agent-v2/internal/domain/errors"
 	"multinic-agent-v2/internal/domain/interfaces"
 	"multinic-agent-v2/internal/domain/services"
+	"net"
+	"path/filepath"
+	"strings"
 
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 )
 
 // ConfigureNetworkUseCase는 네트워크 설정을 처리하는 유스케이스입니다
@@ -16,6 +20,7 @@ type ConfigureNetworkUseCase struct {
 	configurer    interfaces.NetworkConfigurer
 	rollbacker    interfaces.NetworkRollbacker
 	namingService *services.InterfaceNamingService
+	fileSystem    interfaces.FileSystem // 파일 시스템 의존성 추가
 	logger        *logrus.Logger
 }
 
@@ -25,6 +30,7 @@ func NewConfigureNetworkUseCase(
 	configurer interfaces.NetworkConfigurer,
 	rollbacker interfaces.NetworkRollbacker,
 	naming *services.InterfaceNamingService,
+	fs interfaces.FileSystem, // 파일 시스템 의존성 추가
 	logger *logrus.Logger,
 ) *ConfigureNetworkUseCase {
 	return &ConfigureNetworkUseCase{
@@ -32,6 +38,7 @@ func NewConfigureNetworkUseCase(
 		configurer:    configurer,
 		rollbacker:    rollbacker,
 		namingService: naming,
+		fileSystem:    fs,
 		logger:        logger,
 	}
 }
@@ -56,18 +63,12 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 		return nil, errors.NewSystemError("대기 중인 인터페이스 조회 실패", err)
 	}
 
-	if len(pendingInterfaces) == 0 {
-		return &ConfigureNetworkOutput{
-			ProcessedCount: 0,
-			FailedCount:    0,
-			TotalCount:     0,
-		}, nil
+	if len(pendingInterfaces) > 0 {
+		uc.logger.WithFields(logrus.Fields{
+			"node_name":     input.NodeName,
+			"pending_count": len(pendingInterfaces),
+		}).Info("대기 중인 인터페이스 발견")
 	}
-
-	uc.logger.WithFields(logrus.Fields{
-		"node_name":     input.NodeName,
-		"pending_count": len(pendingInterfaces),
-	}).Info("대기 중인 인터페이스 발견")
 
 	var processedCount, failedCount int
 
@@ -88,6 +89,9 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 			processedCount++
 		}
 	}
+
+	// 3. 설정된 인터페이스 동기화
+	uc.syncConfiguredInterfaces(ctx, input.NodeName)
 
 	return &ConfigureNetworkOutput{
 		ProcessedCount: processedCount,
@@ -144,4 +148,126 @@ func (uc *ConfigureNetworkUseCase) processInterface(ctx context.Context, iface e
 	}).Info("인터페이스 설정 성공")
 
 	return nil
+}
+
+// NetplanYAML represents the structure of a netplan configuration file
+type NetplanYAML struct {
+	Network struct {
+		Version   int `yaml:"version"`
+		Ethernets map[string]struct {
+			Match struct {
+				MACAddress string `yaml:"macaddress"`
+			} `yaml:"match"`
+			Addresses []string `yaml:"addresses"`
+			MTU       int      `yaml:"mtu"`
+		} `yaml:"ethernets"`
+	} `yaml:"network"`
+}
+
+func (uc *ConfigureNetworkUseCase) syncConfiguredInterfaces(ctx context.Context, nodeName string) {
+	// 1. Get configured interfaces from DB
+	configuredInterfaces, err := uc.repository.GetConfiguredInterfaces(ctx, nodeName)
+	if err != nil {
+		uc.logger.WithError(err).Error("설정 완료된 인터페이스 조회 실패")
+		return
+	}
+
+	if len(configuredInterfaces) == 0 {
+		return // No configured interfaces to sync
+	}
+
+	uc.logger.WithField("count", len(configuredInterfaces)).Debug("설정 동기화 시작")
+
+	// Create a map for quick lookup
+	macToDBIface := make(map[string]entities.NetworkInterface)
+	for _, iface := range configuredInterfaces {
+		macToDBIface[iface.MacAddress] = iface
+	}
+
+	// 2. List netplan files
+	files, err := uc.fileSystem.ListFiles("/etc/netplan")
+	if err != nil {
+		uc.logger.WithError(err).Error("Netplan 설정 파일 목록 조회 실패")
+		return
+	}
+
+	// 3. Iterate through files, parse, compare, and fix
+	for _, file := range files {
+		// Basic filter for multinic files
+		if !strings.HasPrefix(filepath.Base(file), "9") || !strings.Contains(file, "multinic") {
+			continue
+		}
+
+		// Read and parse the YAML file
+		content, err := uc.fileSystem.ReadFile(file)
+		if err != nil {
+			uc.logger.WithError(err).WithField("file", file).Warn("Netplan 파일 읽기 실패")
+			continue
+		}
+
+		var netplanData NetplanYAML
+		if err := yaml.Unmarshal(content, &netplanData); err != nil {
+			uc.logger.WithError(err).WithField("file", file).Warn("Netplan YAML 파싱 실패")
+			continue
+		}
+
+		// Extract info from parsed data
+		var fileMAC, fileAddress string
+		var fileMTU int
+		var interfaceName string
+
+		for name, eth := range netplanData.Network.Ethernets {
+			interfaceName = name
+			fileMAC = eth.Match.MACAddress
+			if len(eth.Addresses) > 0 {
+				// 주소에서 CIDR 접미사 제거
+				ip, _, err := net.ParseCIDR(eth.Addresses[0])
+				if err == nil {
+					fileAddress = ip.String()
+				} else {
+					fileAddress = eth.Addresses[0] // 파싱 실패 시 원본 사용
+				}
+			}
+			fileMTU = eth.MTU
+			break // Assuming one ethernet per file
+		}
+
+		if fileMAC == "" {
+			continue
+		}
+
+		// 4. Compare with DB data
+		dbIface, ok := macToDBIface[fileMAC]
+		if !ok {
+			// This file's MAC is not in our DB for this node. It might be an orphan.
+			// The orphan deletion logic will handle this.
+			continue
+		}
+
+		// Check for drift
+		isDrifted := (dbIface.Address != fileAddress) || (dbIface.MTU != fileMTU)
+
+		if isDrifted {
+			uc.logger.WithFields(logrus.Fields{
+				"interface":    interfaceName,
+				"db_address":   dbIface.Address,
+				"file_address": fileAddress,
+				"db_mtu":       dbIface.MTU,
+				"file_mtu":     fileMTU,
+			}).Info("설정 변경 감지. 동기화를 시작합니다.")
+
+			ifaceName, err := entities.NewInterfaceName(interfaceName)
+		if err != nil {
+				uc.logger.WithError(err).Error("잘못된 인터페이스 이름")
+				continue
+			}
+
+			// Re-apply the configuration from DB data
+			if err := uc.configurer.Configure(ctx, dbIface, ifaceName); err != nil {
+				uc.logger.WithError(err).WithField("interface", interfaceName).Error("설정 동기화 실패")
+			} else {
+				uc.logger.WithField("interface", interfaceName).Info("설정 동기화 성공")
+			}
+		}
+	}
 }
