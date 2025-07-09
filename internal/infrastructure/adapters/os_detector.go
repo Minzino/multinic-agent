@@ -50,7 +50,7 @@ func (d *RealOSDetector) DetectOS() (interfaces.OSType, error) {
 
 // parseOSRelease는 /etc/os-release 파일을 파싱하여 map으로 반환합니다.
 func (d *RealOSDetector) parseOSRelease() (map[string]string, error) {
-	content, err := d.fileSystem.ReadFile("/etc/os-release")
+	content, err := d.fileSystem.ReadFile("/host/etc/os-release")
 	if err != nil {
 		return nil, err
 	}
