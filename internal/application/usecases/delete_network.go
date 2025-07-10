@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 )
 
 // DeleteNetworkInput은 네트워크 삭제 유스케이스의 입력 데이터입니다
@@ -27,6 +28,8 @@ type DeleteNetworkUseCase struct {
 	osDetector    interfaces.OSDetector
 	rollbacker    interfaces.NetworkRollbacker
 	namingService *services.InterfaceNamingService
+	repository    interfaces.NetworkInterfaceRepository
+	fileSystem    interfaces.FileSystem
 	logger        *logrus.Logger
 }
 
@@ -35,12 +38,16 @@ func NewDeleteNetworkUseCase(
 	osDetector interfaces.OSDetector,
 	rollbacker interfaces.NetworkRollbacker,
 	namingService *services.InterfaceNamingService,
+	repository interfaces.NetworkInterfaceRepository,
+	fileSystem interfaces.FileSystem,
 	logger *logrus.Logger,
 ) *DeleteNetworkUseCase {
 	return &DeleteNetworkUseCase{
 		osDetector:    osDetector,
 		rollbacker:    rollbacker,
 		namingService: namingService,
+		repository:    repository,
+		fileSystem:    fileSystem,
 		logger:        logger,
 	}
 }
@@ -161,7 +168,7 @@ func (uc *DeleteNetworkUseCase) executeNmcliCleanup(ctx context.Context, input D
 	return output, nil
 }
 
-// findOrphanedNetplanFiles는 시스템에 존재하지 않지만 netplan 파일이 남아있는 고아 파일들을 찾습니다
+// findOrphanedNetplanFiles는 DB에 없는 MAC 주소의 netplan 파일을 찾습니다
 func (uc *DeleteNetworkUseCase) findOrphanedNetplanFiles(ctx context.Context) ([]string, error) {
 	var orphanedFiles []string
 
@@ -172,34 +179,47 @@ func (uc *DeleteNetworkUseCase) findOrphanedNetplanFiles(ctx context.Context) ([
 		return nil, fmt.Errorf("netplan 디렉토리 스캔 실패: %w", err)
 	}
 
+	// 현재 노드의 모든 활성 인터페이스 가져오기 (DB에서)
+	hostname, err := uc.namingService.GetHostname()
+	if err != nil {
+		return nil, fmt.Errorf("호스트네임 조회 실패: %w", err)
+	}
+
+	activeInterfaces, err := uc.repository.GetAllNodeInterfaces(ctx, hostname)
+	if err != nil {
+		return nil, fmt.Errorf("활성 인터페이스 조회 실패: %w", err)
+	}
+
+	// MAC 주소 맵 생성 (빠른 조회를 위해)
+	activeMACAddresses := make(map[string]bool)
+	for _, iface := range activeInterfaces {
+		activeMACAddresses[strings.ToLower(iface.MacAddress)] = true
+	}
+
 	for _, fileName := range files {
 		// multinic 파일만 처리 (9*-multinic*.yaml 패턴)
 		if !uc.isMultinicNetplanFile(fileName) {
 			continue
 		}
 
-		// 파일명에서 인터페이스 이름 추출
-		interfaceName := uc.extractInterfaceNameFromFile(fileName)
-		if interfaceName == "" {
-			uc.logger.WithField("file_name", fileName).Warn("인터페이스 이름 추출 실패")
-			continue
-		}
-
-		// 해당 인터페이스가 실제 시스템에 존재하는지 확인
-		exists, err := uc.checkInterfaceExists(ctx, interfaceName)
+		// 파일의 MAC 주소 확인
+		filePath := fmt.Sprintf("%s/%s", netplanDir, fileName)
+		macAddress, err := uc.getMACAddressFromNetplanFile(filePath)
 		if err != nil {
 			uc.logger.WithFields(logrus.Fields{
-				"interface_name": interfaceName,
-				"file_name":      fileName,
-				"error":          err.Error(),
-			}).Warn("인터페이스 존재 여부 확인 실패")
+				"file_name": fileName,
+				"error":     err.Error(),
+			}).Warn("netplan 파일에서 MAC 주소 추출 실패")
 			continue
 		}
 
-		if !exists {
+		// DB에 해당 MAC 주소가 없으면 고아 파일
+		if !activeMACAddresses[strings.ToLower(macAddress)] {
+			interfaceName := uc.extractInterfaceNameFromFile(fileName)
 			uc.logger.WithFields(logrus.Fields{
 				"file_name":      fileName,
 				"interface_name": interfaceName,
+				"mac_address":    macAddress,
 			}).Info("고아 netplan 파일 발견")
 			orphanedFiles = append(orphanedFiles, fileName)
 		}
@@ -276,4 +296,37 @@ func (uc *DeleteNetworkUseCase) deleteNetplanFile(ctx context.Context, fileName,
 	}).Info("고아 netplan 파일 삭제 성공")
 
 	return nil
+}
+
+// getMACAddressFromNetplanFile은 netplan 파일에서 MAC 주소를 추출합니다
+func (uc *DeleteNetworkUseCase) getMACAddressFromNetplanFile(filePath string) (string, error) {
+	content, err := uc.fileSystem.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("파일 읽기 실패: %w", err)
+	}
+
+	// Simple YAML structure for netplan files
+	type NetplanConfig struct {
+		Network struct {
+			Ethernets map[string]struct {
+				Match struct {
+					Macaddress string `yaml:"macaddress"`
+				} `yaml:"match"`
+			} `yaml:"ethernets"`
+		} `yaml:"network"`
+	}
+
+	var config NetplanConfig
+	if err := yaml.Unmarshal(content, &config); err != nil {
+		return "", fmt.Errorf("YAML 파싱 실패: %w", err)
+	}
+
+	// Extract MAC address from the first ethernet configuration
+	for _, eth := range config.Network.Ethernets {
+		if eth.Match.Macaddress != "" {
+			return eth.Match.Macaddress, nil
+		}
+	}
+
+	return "", fmt.Errorf("MAC 주소를 찾을 수 없음")
 }
