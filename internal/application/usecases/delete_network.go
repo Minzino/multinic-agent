@@ -80,6 +80,7 @@ func (uc *DeleteNetworkUseCase) executeNetplanCleanup(ctx context.Context, input
 	}
 
 	if len(orphanedFiles) == 0 {
+				uc.logger.Debug("고아 인터페이스 삭제 프로세스 시작")
 		uc.logger.Debug("삭제 대상 고아 netplan 파일이 없습니다")
 		return output, nil
 	}
