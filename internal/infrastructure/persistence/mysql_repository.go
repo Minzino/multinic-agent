@@ -174,7 +174,7 @@ func (r *MySQLRepository) UpdateInterfaceStatus(ctx context.Context, interfaceID
 	}
 
 	if rowsAffected == 0 {
-		return errors.NewNotFoundError(fmt.Sprintf("인터페이스를 찾을 수 없음: ID=%d", interfaceID))
+		return errors.NewNotFoundError(fmt.Sprintf("인터페이스를 찾을 수 없음: ID=%d", interfaceID)))
 	}
 
 	r.logger.WithFields(logrus.Fields{
@@ -210,7 +210,7 @@ func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entiti
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, errors.NewNotFoundError(fmt.Sprintf("인터페이스를 찾을 수 없음: ID=%d", id))
+		return nil, errors.NewNotFoundError(fmt.Sprintf("인터페이스를 찾을 수 없음: ID=%d", id)))
 	}
 	if err != nil {
 		return nil, errors.NewSystemError("데이터베이스 조회 실패", err)
@@ -237,15 +237,14 @@ func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entiti
 	return &iface, nil
 }
 
-// GetActiveInterfaces는 특정 노드의 활성 인터페이스들을 조회합니다 (삭제 감지용)
-func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
+// GetAllNodeInterfaces는 특정 노드의 모든 인터페이스들을 조회합니다 (netplan_success 상태 무관)
+func (r *MySQLRepository) GetAllNodeInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
 	query := `
 		SELECT mi.id, mi.macaddress, mi.attached_node_name, mi.netplan_success, mi.address, mi.mtu, ms.cidr
 		FROM multi_interface mi
 		LEFT JOIN multi_subnet ms ON mi.subnet_id = ms.subnet_id
 		WHERE mi.attached_node_name = ?
 		AND mi.deleted_at IS NULL
-		LIMIT 10
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, nodeName)
