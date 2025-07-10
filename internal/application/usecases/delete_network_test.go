@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"multinic-agent-v2/internal/domain/entities"
 	"multinic-agent-v2/internal/domain/interfaces"
 	"multinic-agent-v2/internal/domain/services"
 
@@ -27,28 +28,53 @@ func (m *MockOSDetector) DetectOS() (interfaces.OSType, error) {
 func TestDeleteNetworkUseCase_Execute_NetplanFileCleanup_Success(t *testing.T) {
 	// Arrange
 	mockOSDetector := new(MockOSDetector)
-	mockRollbacker := new(MockNetworkRollbacker) // Assumes this mock is defined in another test file in the package
-	mockFileSystem := new(MockFileSystem)       // Assumes this mock is defined in another test file in the package
-	mockExecutor := new(MockCommandExecutor)   // Assumes this mock is defined in another test file in the package
+	mockRollbacker := new(MockNetworkRollbacker)
+	mockFileSystem := new(MockFileSystem)
+	mockExecutor := new(MockCommandExecutor)
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
+	mockRepository := new(MockNetworkInterfaceRepository)
 	namingService := services.NewInterfaceNamingService(mockFileSystem, mockExecutor)
-	useCase := NewDeleteNetworkUseCase(mockOSDetector, mockRollbacker, namingService, logger)
+	useCase := NewDeleteNetworkUseCase(mockOSDetector, mockRollbacker, namingService, mockRepository, mockFileSystem, logger)
 
 	ctx := context.Background()
 	input := DeleteNetworkInput{NodeName: "test-node"}
 
 	mockOSDetector.On("DetectOS").Return(interfaces.OSTypeUbuntu, nil)
 
+	// Setup hostname
+	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "hostname", mock.Anything).Return([]byte("test-node\n"), nil)
+
+	// Setup netplan files
 	netplanFiles := []string{"91-multinic1.yaml", "92-multinic2.yaml"}
 	mockFileSystem.On("ListFiles", "/etc/netplan").Return(netplanFiles, nil)
 
-	// For multinic1, the device exists
-	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "ip", []string{"addr", "show", "multinic1"}).Return([]byte("link/ether"), nil)
+	// Setup active interfaces from DB (only multinic1 is active)
+	activeInterfaces := []entities.NetworkInterface{
+		{ID: 1, MacAddress: "fa:16:3e:11:11:11", AttachedNodeName: "test-node"},
+	}
+	mockRepository.On("GetAllNodeInterfaces", ctx, "test-node").Return(activeInterfaces, nil)
 
-	// For multinic2, the device does not exist (it's an orphan)
-	mockExecutor.On("ExecuteWithTimeout", mock.Anything, mock.Anything, "ip", []string{"addr", "show", "multinic2"}).Return([]byte(""), errors.New("does not exist"))
+	// Setup netplan file content for multinic1 (active)
+	multinic1Content := `network:
+  ethernets:
+    multinic1:
+      match:
+        macaddress: fa:16:3e:11:11:11
+      dhcp4: false
+  version: 2`
+	mockFileSystem.On("ReadFile", "/etc/netplan/91-multinic1.yaml").Return([]byte(multinic1Content), nil)
+
+	// Setup netplan file content for multinic2 (orphan)
+	multinic2Content := `network:
+  ethernets:
+    multinic2:
+      match:
+        macaddress: fa:16:3e:22:22:22
+      dhcp4: false
+  version: 2`
+	mockFileSystem.On("ReadFile", "/etc/netplan/92-multinic2.yaml").Return([]byte(multinic2Content), nil)
 
 	mockRollbacker.On("Rollback", ctx, "multinic2").Return(nil)
 
@@ -60,7 +86,8 @@ func TestDeleteNetworkUseCase_Execute_NetplanFileCleanup_Success(t *testing.T) {
 	assert.NotNil(t, output)
 	assert.Equal(t, 1, output.TotalDeleted)
 	assert.Equal(t, []string{"multinic2"}, output.DeletedInterfaces)
-	mockExecutor.AssertExpectations(t)
+	mockRepository.AssertExpectations(t)
+	mockFileSystem.AssertExpectations(t)
 	mockRollbacker.AssertExpectations(t)
 }
 
@@ -73,8 +100,9 @@ func TestDeleteNetworkUseCase_Execute_NmcliCleanup_Success(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
 
+	mockRepository := new(MockNetworkInterfaceRepository)
 	namingService := services.NewInterfaceNamingService(mockFileSystem, mockExecutor)
-	useCase := NewDeleteNetworkUseCase(mockOSDetector, mockRollbacker, namingService, logger)
+	useCase := NewDeleteNetworkUseCase(mockOSDetector, mockRollbacker, namingService, mockRepository, mockFileSystem, logger)
 
 	ctx := context.Background()
 	input := DeleteNetworkInput{NodeName: "rhel-node"}

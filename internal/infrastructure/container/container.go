@@ -32,7 +32,7 @@ type Container struct {
 	networkFactory *network.NetworkManagerFactory
 
 	// 레포지토리
-	networkRepository interfaces.NetworkInterfaceRepository
+	repository interfaces.NetworkInterfaceRepository
 
 	// 유스케이스
 	configureNetworkUseCase *usecases.ConfigureNetworkUseCase
@@ -92,7 +92,7 @@ func (c *Container) initializeInfrastructure() error {
 	c.db = db
 
 	// 레포지토리 초기화
-	c.networkRepository = persistence.NewMySQLRepository(c.db, c.logger)
+	c.repository = persistence.NewMySQLRepository(c.db, c.logger)
 
 	return nil
 }
@@ -132,7 +132,7 @@ func (c *Container) initializeUseCases() error {
 
 	// 네트워크 설정 유스케이스
 		c.configureNetworkUseCase = usecases.NewConfigureNetworkUseCase(
-		c.networkRepository,
+		c.repository,
 		configurer,
 		rollbacker,
 		c.namingService,
@@ -145,6 +145,8 @@ func (c *Container) initializeUseCases() error {
 		c.osDetector,
 		rollbacker,
 		c.namingService,
+		c.repository,
+		c.fileSystem,
 		c.logger,
 	)
 
