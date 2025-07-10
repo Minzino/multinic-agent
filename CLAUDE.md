@@ -855,3 +855,96 @@ agent:
 - **배포 실패 방지**: 필수 설정 누락으로 인한 배포 실패 최소화
 - **사용 편의성**: 초보자도 쉽게 따라할 수 있는 상세한 가이드
 - **실무 적용성**: 실제 환경에서 바로 사용 가능한 구체적인 예시
+
+## Netplan 동기화 문제 해결 (2025-07-10)
+
+### 문제 상황
+- 구형 netplan 파일(94-95 형식)에 `addresses` 필드가 없음
+- 신형 netplan 파일(90-91 형식)에는 `addresses`, `gateway4`, `routes` 등이 있음
+- DB에는 모든 인터페이스의 IP 정보가 있지만 파일이 업데이트되지 않음
+
+### 원인 분석
+1. **isDrifted 함수 문제**: IP 주소 비교 로직이 잘못되어 드리프트를 감지하지 못함
+2. **GetPendingInterfaces 제한**: netplan_success=0인 인터페이스만 조회
+3. **파일 주소 파싱 오류**: addresses 필드의 CIDR 표기법 처리 미흡
+
+### 해결 방법
+
+#### 1. GetAllNodeInterfaces 추가
+```go
+// 모든 활성 인터페이스 조회 (netplan_success 상태 무관)
+func (r *MySQLRepository) GetAllNodeInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
+    query := `
+        SELECT id, macaddress, attached_node_name, netplan_success, address, cidr, mtu 
+        FROM multi_interface 
+        WHERE attached_node_name = ? 
+        AND deleted_at IS NULL 
+        LIMIT 10
+    `
+    // ...
+}
+```
+
+#### 2. isDrifted 함수 개선
+```go
+func (uc *ConfigureNetworkUseCase) isDrifted(ctx context.Context, dbIface entities.NetworkInterface, configPath string) bool {
+    // ...
+    
+    // 파일에서 IP 주소 파싱
+    if hasAddresses && len(eth.Addresses) > 0 {
+        _, ipNet, err := net.ParseCIDR(eth.Addresses[0])
+        if err == nil {
+            fileAddress = ipNet.IP.String()  // IP만 추출
+            fileCIDR = ipNet.String()        // 전체 CIDR
+        }
+    }
+    
+    // 드리프트 조건 개선
+    isDrifted := (!hasAddresses && dbIface.Address != "") ||  // 구형 파일 + DB에 IP 있음
+        (dbIface.Address != fileAddress) ||                    // IP 불일치
+        (dbIface.CIDR != fileCIDR) ||                         // CIDR 불일치
+        (dbIface.MTU != fileMTU)                              // MTU 불일치
+}
+```
+
+#### 3. 인터페이스 처리 조건 변경
+```go
+// Execute 메서드에서
+allInterfaces, err := uc.repository.GetAllNodeInterfaces(ctx, input.NodeName)
+
+// 파일 존재 여부와 드리프트 체크
+if !fileExists || isDrifted || iface.Status == entities.StatusPending {
+    // 처리 필요
+}
+```
+
+### 테스트 추가
+동기화 테스트 케이스 추가:
+```go
+{
+    name: "설정 동기화 - 변경된 IP와 MTU를 감지하고 수정",
+    setupMocks: func(...) {
+        // DB 데이터와 다른 파일 데이터 설정
+        dbIface := entities.NetworkInterface{
+            Address: "1.1.1.1",
+            CIDR:    "1.1.1.0/24",
+            MTU:     1500,
+        }
+        
+        // 드리프트된 YAML
+        driftedYAML := `
+        addresses: ["1.1.1.2/24"]  # 다른 IP
+        mtu: 1400                  # 다른 MTU
+        `
+    },
+    expectedOutput: &ConfigureNetworkOutput{
+        ProcessedCount: 1,  // 드리프트로 인해 처리됨
+    },
+}
+```
+
+### 결과
+- ✅ 컴파일 오류 해결
+- ✅ 테스트 케이스 통과
+- ✅ 구형/신형 netplan 파일 모두 동기화 가능
+- ✅ LOG_LEVEL 환경 변수 적용 확인

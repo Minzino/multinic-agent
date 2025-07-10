@@ -30,6 +30,12 @@ func NewRHELAdapter(
 	}
 }
 
+// GetConfigDir는 설정 파일이 저장될 디렉토리 경로를 반환합니다
+// RHEL은 nmcli를 사용하므로 실제 파일 경로가 아닌 빈 문자열 반환
+func (a *RHELAdapter) GetConfigDir() string {
+	return ""
+}
+
 // Configure는 nmcli를 사용하여 네트워크 인터페이스를 설정합니다.
 func (a *RHELAdapter) Configure(ctx context.Context, iface entities.NetworkInterface, name entities.InterfaceName) error {
 	ifaceName := name.String()
