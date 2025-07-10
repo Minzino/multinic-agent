@@ -48,6 +48,11 @@ func (m *MockNetworkInterfaceRepository) GetActiveInterfaces(ctx context.Context
 	return args.Get(0).([]entities.NetworkInterface), args.Error(1)
 }
 
+func (m *MockNetworkInterfaceRepository) GetAllNodeInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
+	args := m.Called(ctx, nodeName)
+	return args.Get(0).([]entities.NetworkInterface), args.Error(1)
+}
+
 type MockNetworkConfigurer struct {
 	mock.Mock
 }
@@ -60,6 +65,11 @@ func (m *MockNetworkConfigurer) Configure(ctx context.Context, iface entities.Ne
 func (m *MockNetworkConfigurer) Validate(ctx context.Context, name entities.InterfaceName) error {
 	args := m.Called(ctx, name)
 	return args.Error(0)
+}
+
+func (m *MockNetworkConfigurer) GetConfigDir() string {
+	args := m.Called()
+	return args.String(0)
 }
 
 type MockNetworkRollbacker struct {
@@ -134,8 +144,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				NodeName: "test-node",
 			},
 			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
-				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
-				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
+				repo.On("GetAllNodeInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
 			},
 			expectedOutput: &ConfigureNetworkOutput{
 				ProcessedCount: 0,
@@ -160,11 +169,18 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 					MTU:              1500,
 				}
 
-				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
-				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
+				repo.On("GetAllNodeInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
 
 				// 인터페이스 이름 생성을 위한 파일 시스템 mock
-				fs.On("Exists", "/sys/class/net/multinic0").Return(false)
+				// GenerateNextNameForMAC이 여러 인터페이스를 확인할 수 있음
+				for i := 0; i < 10; i++ {
+					fs.On("Exists", fmt.Sprintf("/sys/class/net/multinic%d", i)).Return(false).Maybe()
+				}
+				
+				// 설정 파일 경로 검색
+				configurer.On("GetConfigDir").Return("/etc/netplan")
+				fs.On("ListFiles", "/etc/netplan").Return([]string{}, nil)
+				fs.On("Exists", "/etc/netplan/90-multinic0.yaml").Return(false)
 
 				// 네트워크 설정 성공
 				configurer.On("Configure", mock.Anything, testInterface, mock.MatchedBy(func(name entities.InterfaceName) bool {
@@ -202,11 +218,18 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 					MTU:              1500,
 				}
 
-				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
-				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
+				repo.On("GetAllNodeInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
 
 				// 인터페이스 이름 생성을 위한 파일 시스템 mock
-				fs.On("Exists", "/sys/class/net/multinic0").Return(false)
+				// GenerateNextNameForMAC이 여러 인터페이스를 확인할 수 있음
+				for i := 0; i < 10; i++ {
+					fs.On("Exists", fmt.Sprintf("/sys/class/net/multinic%d", i)).Return(false).Maybe()
+				}
+				
+				// 설정 파일 경로 검색
+				configurer.On("GetConfigDir").Return("/etc/netplan")
+				fs.On("ListFiles", "/etc/netplan").Return([]string{}, nil)
+				fs.On("Exists", "/etc/netplan/90-multinic0.yaml").Return(false)
 
 				// 네트워크 설정 실패
 				configurer.On("Configure", mock.Anything, testInterface, mock.MatchedBy(func(name entities.InterfaceName) bool {
@@ -242,11 +265,18 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 					MTU:              1500,
 				}
 
-				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
-				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
+				repo.On("GetAllNodeInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{testInterface}, nil)
 
 				// 인터페이스 이름 생성을 위한 파일 시스템 mock
-				fs.On("Exists", "/sys/class/net/multinic0").Return(false)
+				// GenerateNextNameForMAC이 여러 인터페이스를 확인할 수 있음
+				for i := 0; i < 10; i++ {
+					fs.On("Exists", fmt.Sprintf("/sys/class/net/multinic%d", i)).Return(false).Maybe()
+				}
+				
+				// 설정 파일 경로 검색
+				configurer.On("GetConfigDir").Return("/etc/netplan")
+				fs.On("ListFiles", "/etc/netplan").Return([]string{}, nil)
+				fs.On("Exists", "/etc/netplan/90-multinic0.yaml").Return(false)
 
 				// 네트워크 설정 성공
 				configurer.On("Configure", mock.Anything, testInterface, mock.MatchedBy(func(name entities.InterfaceName) bool {
@@ -277,7 +307,7 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				NodeName: "test-node",
 			},
 			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
-				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, errors.New("DB 연결 실패"))
+				repo.On("GetAllNodeInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, errors.New("DB 연결 실패"))
 			},
 			expectedOutput: nil,
 			wantError:      true,
@@ -288,43 +318,62 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 				NodeName: "test-node",
 			},
 			setupMocks: func(repo *MockNetworkInterfaceRepository, configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
-				// 1. No pending interfaces
-				repo.On("GetPendingInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{}, nil)
-
-				// 2. One configured interface in DB with correct data
+				// DB에 설정된 인터페이스
 				dbIface := entities.NetworkInterface{
-					ID:         1,
-					MacAddress: "00:11:22:33:44:55",
-					Address:    "1.1.1.1",
-					CIDR:       "1.1.1.0/24",
-					MTU:        1500,
+					ID:               1,
+					MacAddress:       "00:11:22:33:44:55",
+					AttachedNodeName: "test-node",
+					Address:          "1.1.1.1",
+					CIDR:             "1.1.1.0/24",
+					MTU:              1500,
+					Status:           entities.StatusConfigured,
 				}
-				repo.On("GetConfiguredInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{dbIface}, nil)
+				repo.On("GetAllNodeInterfaces", mock.Anything, "test-node").Return([]entities.NetworkInterface{dbIface}, nil)
+				
+				// 인터페이스 이름 생성
+				// GenerateNextNameForMAC이 여러 인터페이스를 확인할 수 있음
+				for i := 0; i < 10; i++ {
+					fs.On("Exists", fmt.Sprintf("/sys/class/net/multinic%d", i)).Return(false).Maybe()
+				}
+				
+				// 설정 파일 경로 설정
+				configurer.On("GetConfigDir").Return("/etc/netplan")
 
 				// 3. A netplan file on disk with drifted data
-				fileName := "/etc/netplan/90-multinic0.yaml"
+				fileName := "90-multinic0.yaml"
+				fullPath := "/etc/netplan/" + fileName
 				// Note: The address in YAML has the prefix, but the DB Address field does not.
 				driftedYAML := `network:
   version: 2
   ethernets:
     multinic0:
       match:
-        macaddress: "00:11:22:33:44:55"
+        macaddress: 00:11:22:33:44:55
       addresses: ["1.1.1.2/24"] # Drifted IP
       mtu: 1400`               // Drifted MTU
 				fs.On("ListFiles", "/etc/netplan").Return([]string{fileName}, nil)
-				fs.On("ReadFile", fileName).Return([]byte(driftedYAML), nil)
-				fs.On("Exists", fileName).Return(true)
+				fs.On("Exists", fullPath).Return(true)
+				fs.On("ReadFile", fullPath).Return([]byte(driftedYAML), nil)
 
 				// 4. Expect Configure to be called with the correct DB data to fix the drift
 				configurer.On("Configure", mock.Anything, dbIface, mock.MatchedBy(func(name entities.InterfaceName) bool {
 					return name.String() == "multinic0"
 				})).Return(nil)
+				
+				// 검증 성공
+				configurer.On("Validate", mock.Anything, mock.MatchedBy(func(name entities.InterfaceName) bool {
+					return name.String() == "multinic0"
+				})).Return(nil)
+				
+				// 상태 업데이트 - 드리프트 수정 후 성공 상태로 업데이트
+				repo.On("UpdateInterfaceStatus", mock.Anything, 1, entities.StatusConfigured).Return(nil).Maybe()
+				// 실패할 경우를 대비한 설정
+				repo.On("UpdateInterfaceStatus", mock.Anything, 1, entities.StatusFailed).Return(nil).Maybe()
 			},
 			expectedOutput: &ConfigureNetworkOutput{
-				ProcessedCount: 0, // No pending interfaces processed
+				ProcessedCount: 1, // 드리프트 감지로 인해 처리됨
 				FailedCount:    0,
-				TotalCount:     0,
+				TotalCount:     1,
 			},
 			wantError: false,
 		},
@@ -349,7 +398,11 @@ func TestConfigureNetworkUseCase_Execute(t *testing.T) {
 
 			// 로거 생성
 			logger := logrus.New()
-			logger.SetLevel(logrus.FatalLevel) // 테스트 중 로그 출력 억제
+			if tt.name == "설정 동기화 - 변경된 IP와 MTU를 감지하고 수정" {
+				logger.SetLevel(logrus.DebugLevel) // 디버그 로그 활성화
+			} else {
+				logger.SetLevel(logrus.FatalLevel) // 테스트 중 로그 출력 억제
+			}
 
 			// 유스케이스 생성
 			useCase := NewConfigureNetworkUseCase(
@@ -406,22 +459,6 @@ func TestConfigureNetworkUseCase_processInterface(t *testing.T) {
 			wantError: true,
 			errorType: "VALIDATION",
 		},
-		{
-			name: "인터페이스 이름 생성 실패 (모든 인터페이스 사용 중)",
-			iface: entities.NetworkInterface{
-				ID:               1,
-				MacAddress:       "00:11:22:33:44:55",
-				AttachedNodeName: "test-node",
-			},
-			setupMocks: func(configurer *MockNetworkConfigurer, rollbacker *MockNetworkRollbacker, fs *MockFileSystem) {
-				// 모든 인터페이스가 사용 중이라고 설정
-				for i := 0; i < 10; i++ {
-					fs.On("Exists", fmt.Sprintf("/sys/class/net/multinic%d", i)).Return(true)
-				}
-			},
-			wantError: true,
-			errorType: "SYSTEM",
-		},
 	}
 
 	for _, tt := range tests {
@@ -454,7 +491,9 @@ func TestConfigureNetworkUseCase_processInterface(t *testing.T) {
 			)
 
 			// processInterface 메서드 테스트
-			err := useCase.processInterface(context.Background(), tt.iface)
+			// 테스트를 위해 임시 인터페이스 이름 생성
+			interfaceName, _ := entities.NewInterfaceName("multinic0")
+			err := useCase.processInterface(context.Background(), tt.iface, interfaceName)
 
 			// 검증
 			if tt.wantError {
