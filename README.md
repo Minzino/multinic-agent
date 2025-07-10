@@ -112,6 +112,16 @@ curl http://localhost:8080/
 
 ## 🔧 작동 원리
 
+### 설정 변경 자동 감지
+
+Agent는 매 30초마다 다음 항목들의 변경사항을 감지합니다:
+- **IP 주소 변경**: 데이터베이스와 시스템 설정 간 IP 주소 불일치
+- **네트워크 대역 변경**: CIDR 표기법으로 정의된 네트워크 범위 변경
+- **MTU 변경**: Maximum Transmission Unit 값 변경
+- **새 인터페이스**: 데이터베이스에 새로 추가된 인터페이스
+
+변경사항이 감지되면 자동으로 새 설정을 적용하여 시스템을 최신 상태로 유지합니다.
+
 ### 인터페이스 생성/수정 프로세스
 
 ```mermaid
@@ -127,7 +137,8 @@ sequenceDiagram
         
         loop 각 인터페이스
             Agent->>FS: 기존 설정 파일 확인
-            alt 파일 없음 또는 드리프트 감지
+            alt 파일 없음 또는 설정 변경 감지
+                Note over Agent: 새 인터페이스 또는<br/>IP/MTU 변경 감지!
                 Agent->>Agent: multinic[0-9] 이름 할당
                 Agent->>FS: netplan/wicked 설정 생성
                 Agent->>OS: 설정 적용 (netplan apply)
@@ -148,19 +159,21 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Agent as MultiNIC Agent
+    participant DB as Database
     participant FS as File System
-    participant OS as OS Network
 
     loop 30초마다
+        Agent->>DB: 현재 노드의 활성 인터페이스 조회
+        DB-->>Agent: MAC 주소 목록
         Agent->>FS: /etc/netplan/*.yaml 스캔
         FS-->>Agent: multinic* 설정 파일 목록
         
         loop 각 설정 파일
-            Agent->>OS: ip addr show [interface]
-            alt 인터페이스가 시스템에 없음
-                Note over Agent: 사용하지 않는 설정 발견!
+            Agent->>Agent: 파일에서 MAC 주소 추출
+            alt MAC 주소가 DB에 없음
+                Note over Agent: Controller가 삭제한 인터페이스!
                 Agent->>FS: 설정 파일 삭제
-                Agent->>OS: netplan apply
+                Agent->>Agent: netplan apply
                 Note over Agent: 시스템 정리 완료
             end
         end
