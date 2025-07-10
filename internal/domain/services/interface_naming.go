@@ -106,7 +106,7 @@ func (s *InterfaceNamingService) GetMacAddressForInterface(interfaceName string)
 func (s *InterfaceNamingService) ListNmcliConnectionNames(ctx context.Context) ([]string, error) {
 	output, err := s.commandExecutor.ExecuteWithTimeout(ctx, 10*time.Second, "nmcli", "-t", "-f", "NAME", "c", "show")
 	if err != nil {
-		return nil, fmt.Errorf("nmcli connection show 실행 실패: %w", err)
+		return nil, fmt.Errorf("failed to execute nmcli connection show: %w", err)
 	}
 
 	lines := strings.Split(string(output), "\n")
@@ -125,7 +125,7 @@ func (s *InterfaceNamingService) ListNmcliConnectionNames(ctx context.Context) (
 func (s *InterfaceNamingService) ListNetplanFiles(dir string) ([]string, error) {
 	files, err := s.fileSystem.ListFiles(dir)
 	if err != nil {
-		return nil, fmt.Errorf("디렉토리 %s 파일 목록 조회 실패: %w", dir, err)
+		return nil, fmt.Errorf("failed to list files in directory %s: %w", dir, err)
 	}
 
 	return files, nil
@@ -138,12 +138,12 @@ func (s *InterfaceNamingService) GetHostname() (string, error) {
 
 	output, err := s.commandExecutor.ExecuteWithTimeout(ctx, 5*time.Second, "hostname")
 	if err != nil {
-		return "", fmt.Errorf("호스트네임 조회 실패: %w", err)
+		return "", fmt.Errorf("failed to get hostname: %w", err)
 	}
 
 	hostname := strings.TrimSpace(string(output))
 	if hostname == "" {
-		return "", fmt.Errorf("호스트네임이 비어있습니다")
+		return "", fmt.Errorf("hostname is empty")
 	}
 
 	return hostname, nil

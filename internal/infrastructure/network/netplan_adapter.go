@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// NetplanAdapter는 Ubuntu Netplan을 사용하는 NetworkConfigurer 및 NetworkRollbacker 구현체입니다
+// NetplanAdapter is a NetworkConfigurer and NetworkRollbacker implementation using Ubuntu Netplan
 type NetplanAdapter struct {
 	commandExecutor interfaces.CommandExecutor
 	fileSystem      interfaces.FileSystem
@@ -23,7 +23,7 @@ type NetplanAdapter struct {
 	configDir       string
 }
 
-// NewNetplanAdapter는 새로운 NetplanAdapter를 생성합니다
+// NewNetplanAdapter creates a new NetplanAdapter
 func NewNetplanAdapter(
 	executor interfaces.CommandExecutor,
 	fs interfaces.FileSystem,
@@ -37,100 +37,100 @@ func NewNetplanAdapter(
 	}
 }
 
-// GetConfigDir는 설정 파일이 저장될 디렉토리 경로를 반환합니다
+// GetConfigDir returns the directory path where configuration files are stored
 func (a *NetplanAdapter) GetConfigDir() string {
 	return a.configDir
 }
 
-// Configure는 네트워크 인터페이스를 설정합니다
+// Configure configures a network interface
 func (a *NetplanAdapter) Configure(ctx context.Context, iface entities.NetworkInterface, name entities.InterfaceName) error {
-	// 설정 파일 경로 생성
+	// Generate configuration file path
 	index := extractInterfaceIndex(name.String())
 	configPath := filepath.Join(a.configDir, fmt.Sprintf("9%d-%s.yaml", index, name.String()))
 
-	// 백업 로직 제거 - 기존 설정 파일이 있으면 덮어쓰기
+	// Backup logic removed - overwrite existing configuration file if it exists
 
-	// Netplan 설정 생성
+	// Generate Netplan configuration
 	config := a.generateNetplanConfig(iface, name.String())
 	configData, err := yaml.Marshal(config)
 	if err != nil {
-		return errors.NewSystemError("Netplan 설정 마샬링 실패", err)
+		return errors.NewSystemError("failed to marshal Netplan configuration", err)
 	}
 
-	// 설정 파일 저장
+	// Save configuration file
 	if err := a.fileSystem.WriteFile(configPath, configData, 0644); err != nil {
-		return errors.NewSystemError("Netplan 설정 파일 저장 실패", err)
+		return errors.NewSystemError("failed to save Netplan configuration file", err)
 	}
 
 	a.logger.WithFields(logrus.Fields{
 		"interface":   name.String(),
 		"config_path": configPath,
-	}).Info("Netplan 설정 파일 생성 완료")
+	}).Info("Netplan configuration file created")
 
-	// Netplan 테스트 (try 명령)
+	// Test Netplan (try command)
 	if err := a.testNetplan(ctx); err != nil {
-		// 실패 시 설정 파일 제거
+		// Remove configuration file on failure
 		if removeErr := a.fileSystem.Remove(configPath); removeErr != nil {
-			a.logger.WithError(removeErr).WithField("config_path", configPath).Error("Netplan 테스트 실패 후 설정 파일 제거에 실패했습니다.")
+			a.logger.WithError(removeErr).WithField("config_path", configPath).Error("Failed to remove config file after Netplan test failure")
 		}
-		return errors.NewNetworkError("Netplan 설정 테스트 실패", err)
+		return errors.NewNetworkError("Netplan configuration test failed", err)
 	}
 
-	// Netplan 적용
+	// Apply Netplan
 	if err := a.applyNetplan(ctx); err != nil {
-		// 실패 시 롤백
+		// Rollback on failure
 		if rollbackErr := a.Rollback(ctx, name.String()); rollbackErr != nil {
-			a.logger.WithError(rollbackErr).Error("롤백 실패")
+			a.logger.WithError(rollbackErr).Error("Rollback failed")
 		}
-		return errors.NewNetworkError("Netplan 설정 적용 실패", err)
+		return errors.NewNetworkError("failed to apply Netplan configuration", err)
 	}
 
 	return nil
 }
 
-// Validate는 설정된 인터페이스가 정상 작동하는지 검증합니다
+// Validate verifies that the configured interface is working properly
 func (a *NetplanAdapter) Validate(ctx context.Context, name entities.InterfaceName) error {
-	// 인터페이스가 존재하는지 확인
+	// Check if interface exists
 	interfacePath := fmt.Sprintf("/sys/class/net/%s", name.String())
 	if !a.fileSystem.Exists(interfacePath) {
-		return errors.NewValidationError("네트워크 인터페이스가 존재하지 않음", nil)
+		return errors.NewValidationError("network interface does not exist", nil)
 	}
 
-	// 인터페이스가 UP 상태인지 확인
+	// Check if interface is UP
 	_, err := a.commandExecutor.ExecuteWithTimeout(ctx, 10*time.Second, "ip", "link", "show", name.String(), "up")
 	if err != nil {
-		return errors.NewValidationError("네트워크 인터페이스가 UP 상태가 아님", err)
+		return errors.NewValidationError("network interface is not UP", err)
 	}
 
 	return nil
 }
 
-// Rollback은 인터페이스 설정을 이전 상태로 되돌립니다
+// Rollback reverts the interface configuration to the previous state
 func (a *NetplanAdapter) Rollback(ctx context.Context, name string) error {
 	index := extractInterfaceIndex(name)
 	configPath := filepath.Join(a.configDir, fmt.Sprintf("9%d-%s.yaml", index, name))
 
-	// 설정 파일 제거
+	// Remove configuration file
 	if a.fileSystem.Exists(configPath) {
 		if err := a.fileSystem.Remove(configPath); err != nil {
-			return errors.NewSystemError("설정 파일 제거 실패", err)
+			return errors.NewSystemError("failed to remove configuration file", err)
 		}
 	}
 
-	// 백업 복원 로직 제거 - 단순히 설정 파일만 제거
+	// Backup restore logic removed - simply remove configuration file
 
-	// Netplan 재적용
+	// Reapply Netplan
 	if err := a.applyNetplan(ctx); err != nil {
-		return errors.NewNetworkError("롤백 후 Netplan 적용 실패", err)
+		return errors.NewNetworkError("failed to apply Netplan after rollback", err)
 	}
 
-	a.logger.WithField("interface", name).Info("네트워크 설정 롤백 완료")
+	a.logger.WithField("interface", name).Info("network configuration rollback completed")
 	return nil
 }
 
-// testNetplan은 netplan try 명령으로 설정을 테스트합니다
+// testNetplan tests the configuration with netplan try command
 func (a *NetplanAdapter) testNetplan(ctx context.Context) error {
-	// 컨테이너 환경에서는 nsenter를 사용하여 호스트 네임스페이스에서 실행
+	// In container environment, use nsenter to run in host namespace
 	_, err := a.commandExecutor.ExecuteWithTimeout(
 		ctx,
 		120*time.Second,
@@ -140,9 +140,9 @@ func (a *NetplanAdapter) testNetplan(ctx context.Context) error {
 	return err
 }
 
-// applyNetplan은 netplan apply 명령으로 설정을 적용합니다
+// applyNetplan applies the configuration with netplan apply command
 func (a *NetplanAdapter) applyNetplan(ctx context.Context) error {
-	// 컨테이너 환경에서는 nsenter를 사용하여 호스트 네임스페이스에서 실행
+	// In container environment, use nsenter to run in host namespace
 	_, err := a.commandExecutor.ExecuteWithTimeout(
 		ctx,
 		30*time.Second,
@@ -152,7 +152,7 @@ func (a *NetplanAdapter) applyNetplan(ctx context.Context) error {
 	return err
 }
 
-// generateNetplanConfig는 Netplan 설정을 생성합니다
+// generateNetplanConfig generates Netplan configuration
 func (a *NetplanAdapter) generateNetplanConfig(iface entities.NetworkInterface, interfaceName string) map[string]interface{} {
 	ethernetConfig := map[string]interface{}{
 		"match": map[string]interface{}{
@@ -161,9 +161,9 @@ func (a *NetplanAdapter) generateNetplanConfig(iface entities.NetworkInterface, 
 		"set-name": interfaceName,
 	}
 
-	// Static IP 설정: Address와 CIDR이 모두 있어야 함
+	// Static IP configuration: Both Address and CIDR must be present
 	if iface.Address != "" && iface.CIDR != "" {
-		// CIDR에서 접두사(prefix) 추출 (e.g., "10.0.0.0/24" -> "24")
+		// Extract prefix from CIDR (e.g., "10.0.0.0/24" -> "24")
 		parts := strings.Split(iface.CIDR, "/")
 		if len(parts) == 2 {
 			prefix := parts[1]
@@ -178,7 +178,7 @@ func (a *NetplanAdapter) generateNetplanConfig(iface entities.NetworkInterface, 
 			a.logger.WithFields(logrus.Fields{
 				"address": iface.Address,
 				"cidr":    iface.CIDR,
-			}).Warn("잘못된 CIDR 형식, IP 설정을 건너뜁니다.")
+			}).Warn("Invalid CIDR format, skipping IP configuration")
 		}
 	}
 
@@ -194,9 +194,9 @@ func (a *NetplanAdapter) generateNetplanConfig(iface entities.NetworkInterface, 
 	return config
 }
 
-// extractInterfaceIndex는 인터페이스 이름에서 인덱스를 추출합니다
+// extractInterfaceIndex extracts the index from interface name
 func extractInterfaceIndex(name string) int {
-	// multinic0 -> 0, multinic1 -> 1 등
+	// multinic0 -> 0, multinic1 -> 1 etc
 	if strings.HasPrefix(name, "multinic") {
 		indexStr := strings.TrimPrefix(name, "multinic")
 		if index, err := strconv.Atoi(indexStr); err == nil {

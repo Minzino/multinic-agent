@@ -11,7 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// HealthService는 헬스체크 기능을 제공하는 서비스입니다
+// HealthService provides health check functionality
 type HealthService struct {
 	mu             sync.RWMutex
 	clock          interfaces.Clock
@@ -24,7 +24,7 @@ type HealthService struct {
 	networkManager string
 }
 
-// HealthStatus는 헬스체크 상태를 나타냅니다
+// HealthStatus represents health check status
 type HealthStatus string
 
 const (
@@ -33,7 +33,7 @@ const (
 	StatusUnhealthy HealthStatus = "unhealthy"
 )
 
-// HealthResponse는 헬스체크 응답 구조체입니다
+// HealthResponse is the health check response struct
 type HealthResponse struct {
 	Status     HealthStatus           `json:"status"`
 	Timestamp  string                 `json:"timestamp"`
@@ -42,7 +42,7 @@ type HealthResponse struct {
 	Statistics map[string]interface{} `json:"statistics"`
 }
 
-// NewHealthService는 새로운 HealthService를 생성합니다
+// NewHealthService creates a new HealthService
 func NewHealthService(clock interfaces.Clock, logger *logrus.Logger) *HealthService {
 	return &HealthService{
 		clock:     clock,
@@ -52,7 +52,7 @@ func NewHealthService(clock interfaces.Clock, logger *logrus.Logger) *HealthServ
 	}
 }
 
-// UpdateDBHealth는 데이터베이스 상태를 업데이트합니다
+// UpdateDBHealth updates the database health status
 func (h *HealthService) UpdateDBHealth(healthy bool, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -61,7 +61,7 @@ func (h *HealthService) UpdateDBHealth(healthy bool, err error) {
 	h.dbError = err
 }
 
-// IncrementProcessedVMs는 처리된 VM 수를 증가시킵니다
+// IncrementProcessedVMs increments the processed VM count
 func (h *HealthService) IncrementProcessedVMs() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -69,7 +69,7 @@ func (h *HealthService) IncrementProcessedVMs() {
 	h.processedVMs++
 }
 
-// IncrementFailedConfigs는 실패한 설정 수를 증가시킵니다
+// IncrementFailedConfigs increments the failed configuration count
 func (h *HealthService) IncrementFailedConfigs() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -77,7 +77,7 @@ func (h *HealthService) IncrementFailedConfigs() {
 	h.failedConfigs++
 }
 
-// SetNetworkManager는 사용 중인 네트워크 관리자 타입을 설정합니다
+// SetNetworkManager sets the network manager type in use
 func (h *HealthService) SetNetworkManager(managerType string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -85,7 +85,7 @@ func (h *HealthService) SetNetworkManager(managerType string) {
 	h.networkManager = managerType
 }
 
-// ServeHTTP는 HTTP 헬스체크 엔드포인트를 처리합니다
+// ServeHTTP handles the HTTP health check endpoint
 func (h *HealthService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -94,7 +94,7 @@ func (h *HealthService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	response := h.buildHealthResponse()
 
-	// 상태에 따라 HTTP 상태 코드 설정
+	// Set HTTP status code based on health status
 	statusCode := http.StatusOK
 	if response.Status == StatusUnhealthy {
 		statusCode = http.StatusServiceUnavailable
@@ -104,21 +104,21 @@ func (h *HealthService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(statusCode)
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		h.logger.WithError(err).Error("헬스체크 응답 인코딩 실패")
+		h.logger.WithError(err).Error("failed to encode health check response")
 	}
 }
 
-// buildHealthResponse는 헬스체크 응답을 구성합니다
+// buildHealthResponse constructs the health check response
 func (h *HealthService) buildHealthResponse() HealthResponse {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	now := h.clock.Now()
 
-	// 전체 상태 결정
+	// Determine overall status
 	status := h.determineOverallStatus()
 
-	// 컴포넌트 상태
+	// Component status
 	components := map[string]interface{}{
 		"database": map[string]interface{}{
 			"healthy": h.dbHealthy,
@@ -129,7 +129,7 @@ func (h *HealthService) buildHealthResponse() HealthResponse {
 		},
 	}
 
-	// 통계 정보
+	// Statistics information
 	statistics := map[string]interface{}{
 		"processed_vms":  h.processedVMs,
 		"failed_configs": h.failedConfigs,
@@ -145,14 +145,14 @@ func (h *HealthService) buildHealthResponse() HealthResponse {
 	}
 }
 
-// determineOverallStatus는 전체 상태를 결정합니다
+// determineOverallStatus determines the overall health status
 func (h *HealthService) determineOverallStatus() HealthStatus {
-	// 데이터베이스가 비정상이면 unhealthy
+	// If database is unhealthy, overall status is unhealthy
 	if !h.dbHealthy {
 		return StatusUnhealthy
 	}
 
-	// 실패한 설정이 전체의 50% 이상이면 degraded
+	// If failed configurations are 50% or more, status is degraded
 	if h.processedVMs > 0 && h.failedConfigs > 0 {
 		failureRate := float64(h.failedConfigs) / float64(h.processedVMs+h.failedConfigs)
 		if failureRate >= 0.5 {
@@ -163,7 +163,7 @@ func (h *HealthService) determineOverallStatus() HealthStatus {
 	return StatusHealthy
 }
 
-// formatError는 에러를 문자열로 포맷팅합니다
+// formatError formats an error to string
 func (h *HealthService) formatError(err error) string {
 	if err == nil {
 		return ""
@@ -171,7 +171,7 @@ func (h *HealthService) formatError(err error) string {
 	return err.Error()
 }
 
-// formatUptime은 가동 시간을 사람이 읽기 쉬운 형태로 포맷팅합니다
+// formatUptime formats uptime duration to human-readable format
 func (h *HealthService) formatUptime(duration time.Duration) string {
 	days := int(duration.Hours()) / 24
 	hours := int(duration.Hours()) % 24

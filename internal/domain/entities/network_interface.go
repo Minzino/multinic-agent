@@ -5,18 +5,18 @@ import (
 	"regexp"
 )
 
-// NetworkInterface는 네트워크 인터페이스의 도메인 엔티티입니다
+// NetworkInterface is a domain entity for network interface
 type NetworkInterface struct {
 	ID               int
 	MacAddress       string
 	AttachedNodeName string
 	Status           InterfaceStatus
-	Address          string // IP 주소 (e.g., "192.168.1.10")
+	Address          string // IP address (e.g., "192.168.1.10")
 	CIDR             string // CIDR (e.g., "192.168.1.0/24")
-	MTU              int    // MTU 값
+	MTU              int    // MTU value
 }
 
-// InterfaceStatus는 인터페이스의 상태를 나타냅니다
+// InterfaceStatus represents the state of an interface
 type InterfaceStatus int
 
 const (
@@ -25,18 +25,18 @@ const (
 	StatusFailed
 )
 
-// InterfaceName은 multinic 인터페이스 이름을 나타내는 값 객체입니다
+// InterfaceName is a value object representing multinic interface name
 type InterfaceName struct {
 	value string
 }
 
 var (
-	ErrInvalidMacAddress    = errors.New("유효하지 않은 MAC 주소 형식")
-	ErrInvalidInterfaceName = errors.New("유효하지 않은 인터페이스 이름")
-	ErrInvalidNodeName      = errors.New("유효하지 않은 노드 이름")
+	ErrInvalidMacAddress    = errors.New("invalid MAC address format")
+	ErrInvalidInterfaceName = errors.New("invalid interface name")
+	ErrInvalidNodeName      = errors.New("invalid node name")
 )
 
-// NewInterfaceName은 새로운 인터페이스 이름을 생성합니다
+// NewInterfaceName creates a new interface name
 func NewInterfaceName(name string) (InterfaceName, error) {
 	if !isValidInterfaceName(name) {
 		return InterfaceName{}, ErrInvalidInterfaceName
@@ -44,12 +44,12 @@ func NewInterfaceName(name string) (InterfaceName, error) {
 	return InterfaceName{value: name}, nil
 }
 
-// String은 인터페이스 이름의 문자열 표현을 반환합니다
+// String returns the string representation of interface name
 func (n InterfaceName) String() string {
 	return n.value
 }
 
-// Validate는 NetworkInterface의 유효성을 검증합니다
+// Validate verifies the validity of NetworkInterface
 func (ni *NetworkInterface) Validate() error {
 	if !isValidMacAddress(ni.MacAddress) {
 		return ErrInvalidMacAddress
@@ -60,28 +60,28 @@ func (ni *NetworkInterface) Validate() error {
 	return nil
 }
 
-// IsPending은 인터페이스가 설정 대기 중인지 확인합니다
+// IsPending checks if the interface is pending configuration
 func (ni *NetworkInterface) IsPending() bool {
 	return ni.Status == StatusPending
 }
 
-// MarkAsConfigured는 인터페이스를 설정 완료 상태로 변경합니다
+// MarkAsConfigured changes the interface to configured state
 func (ni *NetworkInterface) MarkAsConfigured() {
 	ni.Status = StatusConfigured
 }
 
-// MarkAsFailed는 인터페이스를 설정 실패 상태로 변경합니다
+// MarkAsFailed changes the interface to failed state
 func (ni *NetworkInterface) MarkAsFailed() {
 	ni.Status = StatusFailed
 }
 
-// isValidMacAddress는 MAC 주소의 유효성을 검증합니다
+// isValidMacAddress validates MAC address format
 func isValidMacAddress(mac string) bool {
 	macRegex := regexp.MustCompile(`^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$`)
 	return macRegex.MatchString(mac)
 }
 
-// isValidInterfaceName은 인터페이스 이름의 유효성을 검증합니다
+// isValidInterfaceName validates interface name format
 func isValidInterfaceName(name string) bool {
 	matched, _ := regexp.MatchString(`^multinic[0-9]$`, name)
 	return matched

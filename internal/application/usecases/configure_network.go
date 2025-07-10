@@ -78,7 +78,7 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 	// 1. 해당 노드의 모든 활성 인터페이스 조회 (netplan_success 상태 무관)
 	allInterfaces, err := uc.repository.GetAllNodeInterfaces(ctx, input.NodeName)
 	if err != nil {
-		return nil, errors.NewSystemError("노드 인터페이스 조회 실패", err)
+		return nil, errors.NewSystemError("failed to get node interfaces", err)
 	}
 
 	// 실제로 처리할 인터페이스가 있을 때만 로그 출력하도록 나중에 확인
@@ -90,7 +90,7 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 		// 인터페이스 이름 생성 (기존에 할당된 이름이 있다면 재사용)
 		interfaceName, err := uc.namingService.GenerateNextNameForMAC(iface.MacAddress)
 		if err != nil {
-			uc.logger.WithError(err).WithField("mac_address", iface.MacAddress).Error("인터페이스 이름 생성 실패")
+			uc.logger.WithError(err).WithField("mac_address", iface.MacAddress).Error("Failed to generate interface name")
 			failedCount++
 			continue
 		}
@@ -117,12 +117,12 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 					"interface_id":   iface.ID,
 					"interface_name": interfaceName.String(),
 					"error":          err,
-				}).Error("인터페이스 설정/동기화 실패")
+				}).Error("Failed to configure/sync interface")
 				failedCount++
 
 				// 실패 상태로 업데이트
 				if updateErr := uc.repository.UpdateInterfaceStatus(ctx, iface.ID, entities.StatusFailed); updateErr != nil {
-					uc.logger.WithError(updateErr).Error("인터페이스 상태 업데이트 실패")
+					uc.logger.WithError(updateErr).Error("Failed to update interface status")
 				}
 			} else {
 				processedCount++
@@ -141,42 +141,42 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 func (uc *ConfigureNetworkUseCase) processInterface(ctx context.Context, iface entities.NetworkInterface, interfaceName entities.InterfaceName) error {
 	// 1. 유효성 검증
 	if err := iface.Validate(); err != nil {
-		return errors.NewValidationError("인터페이스 유효성 검증 실패", err)
+		return errors.NewValidationError("Interface validation failed", err)
 	}
 
 	uc.logger.WithFields(logrus.Fields{
 		"interface_id":   iface.ID,
 		"interface_name": interfaceName.String(),
 		"mac_address":    iface.MacAddress,
-	}).Info("인터페이스 설정 시작")
+	}).Info("Starting interface configuration")
 
 	// 2. 네트워크 설정 적용
 	if err := uc.configurer.Configure(ctx, iface, interfaceName); err != nil {
 		// 롤백 시도
 		if rollbackErr := uc.rollbacker.Rollback(ctx, interfaceName.String()); rollbackErr != nil {
-			uc.logger.WithError(rollbackErr).Error("롤백 실패")
+			uc.logger.WithError(rollbackErr).Error("Rollback failed")
 		}
-		return errors.NewNetworkError("네트워크 설정 적용 실패", err)
+		return errors.NewNetworkError("Failed to apply network configuration", err)
 	}
 
 	// 3. 설정 검증
 	if err := uc.configurer.Validate(ctx, interfaceName); err != nil {
 		// 검증 실패 시 롤백
 		if rollbackErr := uc.rollbacker.Rollback(ctx, interfaceName.String()); rollbackErr != nil {
-			uc.logger.WithError(rollbackErr).Error("롤백 실패")
+			uc.logger.WithError(rollbackErr).Error("Rollback failed")
 		}
-		return errors.NewNetworkError("네트워크 설정 검증 실패", err)
+		return errors.NewNetworkError("Network configuration validation failed", err)
 	}
 
 	// 4. 성공 상태로 업데이트
 	if err := uc.repository.UpdateInterfaceStatus(ctx, iface.ID, entities.StatusConfigured); err != nil {
-		return errors.NewSystemError("인터페이스 상태 업데이트 실패", err)
+		return errors.NewSystemError("Failed to update interface status", err)
 	}
 
 	uc.logger.WithFields(logrus.Fields{
 		"interface_id":   iface.ID,
 		"interface_name": interfaceName.String(),
-	}).Info("인터페이스 설정 성공")
+	}).Info("Interface configuration succeeded")
 
 	return nil
 }
@@ -189,19 +189,19 @@ func (uc *ConfigureNetworkUseCase) isDrifted(ctx context.Context, dbIface entiti
 			"interface_id":   dbIface.ID,
 			"mac_address":    dbIface.MacAddress,
 			"config_path":    configPath,
-		}).Debug("설정 파일이 존재하지 않아 드리프트로 감지")
+		}).Debug("Configuration file not found, detected as configuration change")
 		return true
 	}
 
 	content, err := uc.fileSystem.ReadFile(configPath)
 	if err != nil {
-		uc.logger.WithError(err).WithField("file", configPath).Warn("Netplan 파일 읽기 실패, 드리프트로 간주")
+		uc.logger.WithError(err).WithField("file", configPath).Warn("Failed to read Netplan file, treating as configuration mismatch")
 		return true // 파일 읽기 실패 시 드리프트로 간주하여 재설정 시도
 	}
 
 	var netplanData NetplanYAML
 	if err := yaml.Unmarshal(content, &netplanData); err != nil {
-		uc.logger.WithError(err).WithField("file", configPath).Warn("Netplan YAML 파싱 실패, 드리프트로 간주")
+		uc.logger.WithError(err).WithField("file", configPath).Warn("Failed to parse Netplan YAML, treating as configuration mismatch")
 		return true // YAML 파싱 실패 시 드리프트로 간주하여 재설정 시도
 	}
 
@@ -237,7 +237,7 @@ func (uc *ConfigureNetworkUseCase) isDrifted(ctx context.Context, dbIface entiti
 		uc.logger.WithFields(logrus.Fields{
 			"db_mac":   dbIface.MacAddress,
 			"file_mac": fileMAC,
-		}).Warn("MAC 주소 불일치, 드리프트로 간주")
+		}).Warn("MAC address mismatch, treating as configuration change")
 		return true
 	}
 
@@ -257,11 +257,11 @@ func (uc *ConfigureNetworkUseCase) isDrifted(ctx context.Context, dbIface entiti
 			"file_cidr":      fileCIDR,
 			"db_mtu":         dbIface.MTU,
 			"file_mtu":       fileMTU,
-			"drift_condition_1": (!hasAddresses && dbIface.Address != ""),
-			"drift_condition_2": (dbIface.Address != fileAddress),
-			"drift_condition_3": (dbIface.CIDR != fileCIDR),
-			"drift_condition_4": (dbIface.MTU != fileMTU),
-		}).Debug("드리프트 감지됨")
+			"config_change_1": (!hasAddresses && dbIface.Address != ""),
+			"config_change_2": (dbIface.Address != fileAddress),
+			"config_change_3": (dbIface.CIDR != fileCIDR),
+			"config_change_4": (dbIface.MTU != fileMTU),
+		}).Debug("Configuration changes detected")
 	}
 
 	return isDrifted
@@ -272,7 +272,7 @@ func (uc *ConfigureNetworkUseCase) findNetplanFileForInterface(interfaceName str
 	configDir := uc.configurer.GetConfigDir()
 	files, err := uc.fileSystem.ListFiles(configDir)
 	if err != nil {
-		uc.logger.WithError(err).Warn("Netplan 디렉토리 스캔 실패")
+		uc.logger.WithError(err).Warn("Failed to scan Netplan directory")
 		return ""
 	}
 
