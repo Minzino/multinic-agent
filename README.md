@@ -1,166 +1,325 @@
-# MultiNIC Agent v0.6.0
+# MultiNIC Agent v2
 
-MultiNIC 네트워크 설정 관리를 위한 Kubernetes DaemonSet 에이전트
+> **Kubernetes 클러스터 네트워크 인터페이스 완전 자동화 에이전트**
 
-## 개요
+OpenStack 환경에서 다중 네트워크 인터페이스의 **전체 생명주기**를 자동으로 관리하는 지능형 Kubernetes DaemonSet 에이전트입니다.
 
-이 에이전트는 Kubernetes 클러스터에 조인된 노드들의 네트워크 인터페이스 설정을 자동으로 관리합니다. 
-데이터베이스를 모니터링하여 네트워크 설정 생성/삭제를 완전 자동화하고, 고아 인터페이스를 자동으로 정리합니다.
+## 🚀 주요 기능
 
-## 버전 정보
+### 핵심 기능
+- **자동 인터페이스 생성**: MAC 주소 기반으로 multinic0~9 인터페이스 자동 생성
+- **설정 동기화**: 데이터베이스와 시스템 설정 간 불일치 자동 감지 및 수정
+- **고아 인터페이스 정리**: OpenStack에서 삭제된 인터페이스 자동 제거
+- **자동 롤백**: 설정 실패 시 이전 상태로 자동 복원
+- **다중 OS 지원**: Ubuntu(Netplan) 및 SUSE(Wicked) 지원
 
-- **버전**: 0.6.0 (**NEW**: 인터페이스 삭제 기능 추가)
-- **Go 버전**: 1.21+
-- **Kubernetes**: 1.20+
-- **지원 OS**: Ubuntu 18.04+, Red Hat Enterprise Linux 9+ (및 Rocky, Alma, SUSE Liberty 등 호환 OS)
+### 신규 기능 (v2)
+- **구형/신형 netplan 파일 호환**: addresses 필드 유무와 관계없이 동작
+- **드리프트 감지 개선**: IP, CIDR, MTU 변경사항 정확히 감지
+- **로그 최적화**: 정상 상태에서는 완전히 조용히 동작
+- **클린 아키텍처**: 도메인 주도 설계로 확장성과 유지보수성 향상
 
-## 주요 기능
+## 📋 요구사항
 
-- **완전한 생명주기 관리**: 인터페이스 생성, 설정, **삭제** 자동화
-- **고아 인터페이스 자동 정리**: OpenStack 삭제 시 자동 감지 및 제거
-- **데이터베이스 기반 설정 관리**: MySQL/MariaDB 연동
-- **다중 OS 지원**: Ubuntu (Netplan) 및 SUSE (Wicked)
-- **스마트 인터페이스 할당**: 중간 빈 슬롯 자동 재사용
-- **multinic0 ~ multinic9 인터페이스 관리**: 최대 10개 지원
-- **기존 네트워크 보호**: eth0, ens* 등 기존 인터페이스 보호
-- **클린 아키텍처**: 도메인 주도 설계 및 전체 노드 지원
+### 시스템 요구사항
+- Kubernetes 1.19+
+- Ubuntu 18.04+ 또는 SUSE Linux 9.4
+- MySQL/MariaDB 5.7+
 
-## 아키텍처
+### 개발 요구사항
+- Go 1.21+
+- Docker 또는 nerdctl
+- Helm 3+
+- kubectl
 
-```
-┌─────────────────┐
-│   Controller    │
-│  (DB: MariaDB)  │
-└────────┬────────┘
-         │
-    ┌────▼────┐
-    │ Agent   │ (DaemonSet)
-    │ - DB 모니터링 (30초 주기)
-    │ - 설정 적용 (Netplan/Wicked)
-    │ - 고아 인터페이스 자동 삭제
-    │ - 자동 롤백
-    │ - 헬스체크 (포트 8080)
-    └─────────┘
-```
+## 🏗️ 아키텍처
 
-## 설치 방법
-
-### 원클릭 배포 (권장)
-
-```bash
-# 모든 노드에 이미지 자동 배포 및 Helm 설치
-./scripts/deploy.sh
-
-# 환경 변수로 설정 변경
-NAMESPACE=multinic-dev IMAGE_TAG=0.5.0 ./scripts/deploy.sh
-```
-
-### Helm을 사용한 설치
-
-```bash
-# 기본 설치
-helm install multinic-agent ./deployments/helm
-
-# 커스텀 값 사용
-helm install multinic-agent ./deployments/helm \
-  --set database.host=YOUR_DB_HOST \
-  --set database.port=YOUR_DB_PORT \
-  --set database.password=YOUR_DB_PASSWORD
+```mermaid
+graph TB
+    DB[(MariaDB/MySQL<br/>네트워크 설정)]
+    
+    subgraph "Kubernetes Cluster"
+        subgraph "DaemonSet"
+            Agent1[multinic-agent<br/>on node1]
+            Agent2[multinic-agent<br/>on node2]
+            Agent3[multinic-agent<br/>on node3]
+        end
+    end
+    
+    subgraph "Network Interfaces"
+        NIC1[multinic0-9<br/>on node1]
+        NIC2[multinic0-9<br/>on node2]
+        NIC3[multinic0-9<br/>on node3]
+    end
+    
+    DB -->|30초 폴링| Agent1
+    DB -->|30초 폴링| Agent2
+    DB -->|30초 폴링| Agent3
+    
+    Agent1 -->|생성/수정/삭제| NIC1
+    Agent2 -->|생성/수정/삭제| NIC2
+    Agent3 -->|생성/수정/삭제| NIC3
 ```
 
-### values.yaml 설정
+## 🚀 빠른 시작
+
+### 1. 설정 파일 준비
+
+`deployments/helm/values.yaml` 파일을 실제 환경에 맞게 수정:
 
 ```yaml
 database:
-  host: "YOUR_DB_HOST"
-  port: "YOUR_DB_PORT"
-  user: "YOUR_DB_USER"
-  password: "YOUR_DB_PASSWORD"
-  name: "YOUR_DB_NAME"
+  host: "192.168.1.100"        # 실제 DB 호스트
+  port: "3306"                 # DB 포트
+  user: "multinic"             # DB 사용자
+  password: "your_password"    # DB 비밀번호
+  name: "multinic_db"          # DB 이름
 
 agent:
-  pollInterval: "30s"
+  pollInterval: "30s"          # 폴링 간격
+  logLevel: "info"             # 로그 레벨 (debug/info/warn/error)
 ```
 
-## 동작 방식
+### 2. 배포
 
-### 인터페이스 생성 프로세스
-1. 에이전트는 주기적으로 데이터베이스의 `multi_interface` 테이블을 확인
-2. `netplan_success = 0`이고 `attached_node_name`이 본인인 항목 발견
-3. MAC 주소를 기반으로 네트워크 설정 자동 생성 (IP 설정 없이 단순 인터페이스만)
-4. 인터페이스 이름을 multinic0~9 형식으로 자동 할당 (최대 10개)
-5. OS에 따라 적절한 네트워크 관리자 사용 (Netplan/Wicked)
-6. 설정 적용 및 테스트 후 성공 시 `netplan_success = 1`로 업데이트
-7. 실패 시 설정 파일 제거 및 롤백
+```bash
+# SSH 비밀번호 설정
+export SSH_PASSWORD="your_ssh_password"
 
-### 인터페이스 삭제 프로세스 (v0.6.0 신규)
-1. **/etc/netplan` 디렉토리에서 `multinic` 관련 설정 파일을 스캔**합니다.
-2. 각 설정 파일에 해당하는 네트워크 인터페이스가 **실제 시스템에 존재하는지 (`ip addr` 명령어로) 확인**합니다.
-3. **설정 파일은 있지만 실제 인터페이스는 없는 경우**를 '고아(Orphaned)' 상태로 식별합니다.
-4. 식별된 고아 인터페이스의 설정 파일을 자동으로 제거하여 시스템을 정리합니다.
-5. 이 과정을 통해 불필요한 설정이 남지 않도록 보장하며, 시스템의 안정성을 높입니다.
+# 배포 실행
+./scripts/deploy.sh
 
-## 데이터베이스 스키마
+# 또는 커스텀 설정으로 배포
+NAMESPACE=multinic-prod IMAGE_TAG=v2.0.0 ./scripts/deploy.sh
+```
 
-### multi_interface 테이블
+### 3. 상태 확인
+
+```bash
+# DaemonSet 상태
+kubectl get daemonset -n multinic-system multinic-agent
+
+# Pod 상태
+kubectl get pods -n multinic-system -l app.kubernetes.io/name=multinic-agent -o wide
+
+# 로그 확인
+kubectl logs -n multinic-system -l app.kubernetes.io/name=multinic-agent -f
+
+# 헬스체크
+kubectl port-forward -n multinic-system daemonset/multinic-agent 8080:8080
+curl http://localhost:8080/
+```
+
+## 🔧 작동 원리
+
+### 인터페이스 생성/수정 프로세스
+
+```mermaid
+sequenceDiagram
+    participant DB as Database
+    participant Agent as MultiNIC Agent
+    participant FS as File System
+    participant OS as OS Network
+
+    loop 30초마다
+        Agent->>DB: 모든 활성 인터페이스 조회
+        DB-->>Agent: 인터페이스 목록 (MAC, IP, MTU 등)
+        
+        loop 각 인터페이스
+            Agent->>FS: 기존 설정 파일 확인
+            alt 파일 없음 또는 드리프트 감지
+                Agent->>Agent: multinic[0-9] 이름 할당
+                Agent->>FS: netplan/wicked 설정 생성
+                Agent->>OS: 설정 적용 (netplan apply)
+                
+                alt 성공
+                    Agent->>DB: 상태 업데이트 (success=1)
+                else 실패
+                    Agent->>FS: 설정 롤백
+                    Agent->>DB: 상태 업데이트 (success=0)
+                end
+            end
+        end
+    end
+```
+
+### 고아 인터페이스 정리 프로세스
+
+```mermaid
+sequenceDiagram
+    participant Agent as MultiNIC Agent
+    participant FS as File System
+    participant OS as OS Network
+
+    loop 30초마다
+        Agent->>FS: /etc/netplan/*.yaml 스캔
+        FS-->>Agent: multinic* 설정 파일 목록
+        
+        loop 각 설정 파일
+            Agent->>OS: ip addr show [interface]
+            alt 인터페이스 없음
+                Note over Agent: 고아 감지!
+                Agent->>FS: 설정 파일 삭제
+                Agent->>OS: netplan apply
+            end
+        end
+    end
+```
+
+## 📊 모니터링
+
+### 헬스체크 엔드포인트
+
+```bash
+GET http://localhost:8080/
+
+# 응답 예시
+{
+  "status": "healthy",
+  "uptime": "3h25m10s",
+  "processed_vms": 15,
+  "failed_configs": 0,
+  "database_connected": true,
+  "last_sync": "2025-07-10T06:15:30Z"
+}
+```
+
+### 로그 형식
+
+JSON 구조화 로깅 사용:
+
+```json
+{
+  "level": "info",
+  "msg": "인터페이스 설정 성공",
+  "interface_id": 123,
+  "interface_name": "multinic0",
+  "mac_address": "fa:16:3e:5e:62:3e",
+  "time": "2025-07-10T06:15:30Z"
+}
+```
+
+## 🛠️ 개발
+
+### 프로젝트 구조
+
+```
+multinic-agent-v2/
+├── cmd/agent/          # 메인 애플리케이션
+├── internal/           # 클린 아키텍처
+│   ├── domain/         # 비즈니스 로직
+│   ├── application/    # 유스케이스
+│   ├── infrastructure/ # 외부 시스템 연동
+│   └── interfaces/     # HTTP/CLI 인터페이스
+├── deployments/        # 배포 설정
+│   └── helm/          # Helm 차트
+└── scripts/           # 유틸리티 스크립트
+```
+
+### 테스트 실행
+
+```bash
+# 단위 테스트
+go test ./...
+
+# 커버리지 확인
+go test ./... -coverprofile=coverage.out
+go tool cover -html=coverage.out
+
+# 특정 패키지 테스트
+go test ./internal/application/usecases -v
+```
+
+### 빌드
+
+```bash
+# 로컬 빌드
+go build -o multinic-agent ./cmd/agent
+
+# Docker 이미지 빌드
+docker build -t multinic-agent:latest .
+
+# Multi-arch 빌드
+docker buildx build --platform linux/amd64,linux/arm64 -t multinic-agent:latest .
+```
+
+## 🐛 문제 해결
+
+### 에이전트가 시작되지 않을 때
+
+```bash
+# Pod 상태 확인
+kubectl describe pod -n multinic-system <pod-name>
+
+# 데이터베이스 연결 테스트
+kubectl exec -n multinic-system <pod-name> -- nc -zv $DB_HOST $DB_PORT
+
+# 환경 변수 확인
+kubectl exec -n multinic-system <pod-name> -- env | grep DB_
+```
+
+### 인터페이스가 생성되지 않을 때
+
+1. **호스트네임 확인**: DB의 `attached_node_name`과 일치하는지 확인
+2. **MAC 주소 형식**: `00:11:22:33:44:55` 형식인지 확인
+3. **로그 확인**: 드리프트 감지 로그 확인
+
+### 고아 인터페이스가 삭제되지 않을 때
+
+```bash
+# 삭제 관련 로그 확인
+kubectl logs -n multinic-system <pod-name> | grep -i "orphan\|delete"
+
+# 현재 netplan 파일 확인
+kubectl exec -n multinic-system <pod-name> -- ls -la /etc/netplan/
+
+# 시스템 인터페이스 확인
+kubectl exec -n multinic-system <pod-name> -- ip addr show | grep multinic
+```
+
+## 📝 데이터베이스 스키마
+
 ```sql
 CREATE TABLE multi_interface (
     id INT PRIMARY KEY AUTO_INCREMENT,
     port_id VARCHAR(36) NOT NULL,
     subnet_id VARCHAR(36) NOT NULL,
     macaddress VARCHAR(17) NOT NULL,
-    attached_node_id VARCHAR(36),
     attached_node_name VARCHAR(255),
-    cr_namespace VARCHAR(255) NOT NULL,
-    cr_name VARCHAR(255) NOT NULL,
-    status VARCHAR(50) DEFAULT 'active',
     netplan_success TINYINT(1) DEFAULT 0,
-    created_at TIMESTAMP,
-    modified_at TIMESTAMP,
-    deleted_at TIMESTAMP
+    address VARCHAR(15),           -- IP 주소 (신규)
+    cidr VARCHAR(18),             -- CIDR (신규)
+    mtu INT DEFAULT 1500,         -- MTU (신규)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    modified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP NULL
 );
 ```
 
-## 개발
+## 🔒 보안 고려사항
 
-### 빌드
-```bash
-docker build -t multinic-agent:latest .
-```
+- 데이터베이스 비밀번호는 Kubernetes Secret으로 관리
+- 최소 권한 원칙: 에이전트는 필요한 DB 테이블에만 접근
+- 네트워크 정책: 필요한 포트만 개방 (8080 for health, DB port)
+- 기존 시스템 인터페이스 (eth0, ens* 등) 보호
 
-### 로컬 테스트
-```bash
-# 단위 테스트
-go test ./internal/...
+## 📜 라이선스
 
-# 로컬 실행 (환경 변수 설정 필요)
-export DB_HOST=YOUR_DB_HOST
-export DB_PASSWORD=YOUR_DB_PASSWORD
-go run cmd/agent/main.go
-```
+이 프로젝트는 MIT 라이선스 하에 배포됩니다. 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.
 
-## 모니터링 및 로깅
+## 🤝 기여하기
 
-### 로깅 형식
-에이전트는 JSON 형식으로 구조화된 로그를 출력합니다:
-- 설정 적용 시작/완료
-- 오류 발생 시 상세 정보
-- 롤백 수행 시 알림
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-### 헬스체크
-- **엔드포인트**: `GET /` (포트 8080)
-- **상태**: healthy/degraded/unhealthy
-- **정보**: 데이터베이스 연결, 처리된 VM 수, 실패 수
+## 📞 지원
 
-## 문제 해결
+- 이슈 트래커: [GitHub Issues](https://github.com/your-org/multinic-agent-v2/issues)
+- 문서: [Wiki](https://github.com/your-org/multinic-agent-v2/wiki)
 
-### 에이전트가 설정을 적용하지 않음
-1. 데이터베이스 연결 확인
-2. 노드의 호스트네임과 DB의 attached_node_name 일치 여부 확인
-3. 에이전트 로그 확인
+---
 
-### 네트워크 설정 실패
-1. 에이전트 로그 확인: `kubectl logs -l app.kubernetes.io/name=multinic-agent`
-2. OS별 로그 확인:
-   - Ubuntu: `journalctl -u systemd-networkd`
-   - SUSE: `journalctl -u wicked`
+Made with ❤️ by the Infrastructure Team
