@@ -25,7 +25,7 @@ func main() {
 	if logLevelStr != "" {
 		logLevel, err := logrus.ParseLevel(logLevelStr)
 		if err != nil {
-			logger.WithError(err).Warnf("알 수 없는 LOG_LEVEL 값: %s. 기본 Info 레벨을 사용합니다.", logLevelStr)
+			logger.WithError(err).Warnf("Unknown LOG_LEVEL value: %s. Using default Info level.", logLevelStr)
 			logger.SetLevel(logrus.InfoLevel) // Fallback to Info
 		} else {
 			logger.SetLevel(logLevel)
@@ -38,24 +38,24 @@ func main() {
 	configLoader := config.NewEnvironmentConfigLoader()
 	cfg, err := configLoader.Load()
 	if err != nil {
-		logger.WithError(err).Fatal("설정 로드 실패")
+		logger.WithError(err).Fatal("Failed to load configuration")
 	}
 
 	// 의존성 주입 컨테이너 생성
 	appContainer, err := container.NewContainer(cfg, logger)
 	if err != nil {
-		logger.WithError(err).Fatal("의존성 주입 컨테이너 생성 실패")
+		logger.WithError(err).Fatal("Failed to create dependency injection container")
 	}
 	defer func() {
 		if err := appContainer.Close(); err != nil {
-			logger.WithError(err).Error("컨테이너 정리 실패")
+			logger.WithError(err).Error("Failed to cleanup container")
 		}
 	}()
 
 	// 애플리케이션 시작
 	app := NewApplication(appContainer, logger)
 	if err := app.Run(); err != nil {
-		logger.WithError(err).Fatal("애플리케이션 실행 실패")
+		logger.WithError(err).Fatal("Failed to run application")
 	}
 }
 
@@ -98,21 +98,21 @@ func (a *Application) Run() error {
 	ticker := time.NewTicker(cfg.Agent.PollInterval)
 	defer ticker.Stop()
 
-	a.logger.Info("MultiNIC 에이전트 시작")
+	a.logger.Info("MultiNIC agent started")
 
 	for {
 		select {
 		case <-ctx.Done():
-			a.logger.Info("에이전트 종료")
+			a.logger.Info("Agent shutting down")
 			return a.shutdown()
 
 		case <-sigChan:
-			a.logger.Info("종료 신호 수신")
+			a.logger.Info("Received shutdown signal")
 			cancel()
 
 		case <-ticker.C:
 			if err := a.processNetworkConfigurations(ctx); err != nil {
-				a.logger.WithError(err).Error("네트워크 설정 처리 실패")
+				a.logger.WithError(err).Error("Failed to process network configurations")
 				a.container.GetHealthService().UpdateDBHealth(false, err)
 			} else {
 				a.container.GetHealthService().UpdateDBHealth(true, nil)
@@ -131,9 +131,9 @@ func (a *Application) startHealthServer(port string) error {
 	}
 
 	go func() {
-		a.logger.WithField("port", port).Info("헬스체크 서버 시작")
+		a.logger.WithField("port", port).Info("Health check server started")
 		if err := a.healthServer.ListenAndServe(); err != http.ErrServerClosed {
-			a.logger.WithError(err).Error("헬스체크 서버 실패")
+			a.logger.WithError(err).Error("Health check server failed")
 		}
 	}()
 
@@ -165,7 +165,7 @@ func (a *Application) processNetworkConfigurations(ctx context.Context) error {
 
 	deleteOutput, err := a.deleteUseCase.Execute(ctx, deleteInput)
 	if err != nil {
-		a.logger.WithError(err).Error("고아 인터페이스 삭제 처리 실패")
+		a.logger.WithError(err).Error("Failed to process orphaned interface deletion")
 		// 삭제 실패는 치명적이지 않으므로 계속 진행
 	}
 
@@ -186,13 +186,13 @@ func (a *Application) processNetworkConfigurations(ctx context.Context) error {
 			"config_total":     configOutput.TotalCount,
 			"deleted_total":    deleteOutput.TotalDeleted,
 			"delete_errors":    len(deleteOutput.Errors),
-		}).Info("네트워크 처리 완료")
+		}).Info("Network processing completed")
 	}
 
 	// 삭제 에러가 있다면 별도로 로깅
 	if len(deleteOutput.Errors) > 0 {
 		for _, delErr := range deleteOutput.Errors {
-			a.logger.WithError(delErr).Warn("인터페이스 삭제 중 에러 발생")
+			a.logger.WithError(delErr).Warn("Error occurred during interface deletion")
 		}
 	}
 
@@ -207,7 +207,7 @@ func (a *Application) shutdown() error {
 		defer shutdownCancel()
 
 		if err := a.healthServer.Shutdown(shutdownCtx); err != nil {
-			a.logger.WithError(err).Error("헬스체크 서버 종료 실패")
+			a.logger.WithError(err).Error("Failed to shutdown health check server")
 		}
 	}
 

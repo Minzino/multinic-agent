@@ -26,7 +26,7 @@ func NewMySQLRepository(db *sql.DB, logger *logrus.Logger) interfaces.NetworkInt
 	}
 }
 
-// GetPendingInterfaces는 특정 노드의 설정 대기 중인 인터페이스들을 조회합니다
+// GetPendingInterfaces retrieves interfaces pending configuration for a specific node
 func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
 	query := `
 		SELECT mi.id, mi.macaddress, mi.attached_node_name, mi.netplan_success, mi.address, mi.mtu, ms.cidr
@@ -40,7 +40,7 @@ func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName str
 
 	rows, err := r.db.QueryContext(ctx, query, nodeName)
 	if err != nil {
-		return nil, errors.NewSystemError("데이터베이스 조회 실패", err)
+		return nil, errors.NewSystemError("database query failed", err)
 	}
 	defer rows.Close()
 
@@ -62,7 +62,7 @@ func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName str
 			&cidr,
 		)
 		if err != nil {
-			r.logger.WithError(err).Error("행 스캔 실패")
+			r.logger.WithError(err).Error("failed to scan row")
 			continue
 		}
 
@@ -80,13 +80,13 @@ func (r *MySQLRepository) GetPendingInterfaces(ctx context.Context, nodeName str
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, errors.NewSystemError("결과 처리 중 오류", err)
+		return nil, errors.NewSystemError("error processing results", err)
 	}
 
 	return interfaces, nil
 }
 
-// GetConfiguredInterfaces는 특정 노드의 설정 완료된 인터페이스들을 조회합니다
+// GetConfiguredInterfaces retrieves configured interfaces for a specific node
 func (r *MySQLRepository) GetConfiguredInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
 	query := `
 		SELECT mi.id, mi.macaddress, mi.attached_node_name, mi.netplan_success, mi.address, mi.mtu, ms.cidr
@@ -99,7 +99,7 @@ func (r *MySQLRepository) GetConfiguredInterfaces(ctx context.Context, nodeName 
 
 	rows, err := r.db.QueryContext(ctx, query, nodeName)
 	if err != nil {
-		return nil, errors.NewSystemError("데이터베이스 조회 실패", err)
+		return nil, errors.NewSystemError("database query failed", err)
 	}
 	defer rows.Close()
 
@@ -121,7 +121,7 @@ func (r *MySQLRepository) GetConfiguredInterfaces(ctx context.Context, nodeName 
 			&cidr,
 		)
 		if err != nil {
-			r.logger.WithError(err).Error("행 스캔 실패")
+			r.logger.WithError(err).Error("failed to scan row")
 			continue
 		}
 
@@ -139,13 +139,13 @@ func (r *MySQLRepository) GetConfiguredInterfaces(ctx context.Context, nodeName 
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, errors.NewSystemError("결과 처리 중 오류", err)
+		return nil, errors.NewSystemError("error processing results", err)
 	}
 
 	return interfaces, nil
 }
 
-// UpdateInterfaceStatus는 인터페이스의 설정 상태를 업데이트합니다
+// UpdateInterfaceStatus updates the configuration status of an interface
 func (r *MySQLRepository) UpdateInterfaceStatus(ctx context.Context, interfaceID int, status entities.InterfaceStatus) error {
 	var netplanSuccess int
 	switch status {
@@ -165,27 +165,27 @@ func (r *MySQLRepository) UpdateInterfaceStatus(ctx context.Context, interfaceID
 
 	result, err := r.db.ExecContext(ctx, query, netplanSuccess, interfaceID)
 	if err != nil {
-		return errors.NewSystemError("상태 업데이트 실패", err)
+		return errors.NewSystemError("failed to update status", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return errors.NewSystemError("영향받은 행 확인 실패", err)
+		return errors.NewSystemError("failed to check affected rows", err)
 	}
 
 	if rowsAffected == 0 {
-		return errors.NewNotFoundError(fmt.Sprintf("인터페이스를 찾을 수 없음: ID=%d", interfaceID))
+		return errors.NewNotFoundError(fmt.Sprintf("interface not found: ID=%d", interfaceID))
 	}
 
 	r.logger.WithFields(logrus.Fields{
 		"interface_id": interfaceID,
 		"status":       status,
-	}).Info("인터페이스 상태 업데이트 완료")
+	}).Info("interface status updated")
 
 	return nil
 }
 
-// GetInterfaceByID는 ID로 인터페이스를 조회합니다
+// GetInterfaceByID retrieves an interface by its ID
 func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entities.NetworkInterface, error) {
 	query := `
 		SELECT mi.id, mi.macaddress, mi.attached_node_name, mi.netplan_success, mi.address, mi.mtu, ms.cidr
@@ -210,10 +210,10 @@ func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entiti
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, errors.NewNotFoundError(fmt.Sprintf("인터페이스를 찾을 수 없음: ID=%d", id))
+		return nil, errors.NewNotFoundError(fmt.Sprintf("interface not found: ID=%d", id))
 	}
 	if err != nil {
-		return nil, errors.NewSystemError("데이터베이스 조회 실패", err)
+		return nil, errors.NewSystemError("database query failed", err)
 	}
 
 	if address.Valid {
@@ -237,7 +237,7 @@ func (r *MySQLRepository) GetInterfaceByID(ctx context.Context, id int) (*entiti
 	return &iface, nil
 }
 
-// GetActiveInterfaces는 특정 노드의 활성 인터페이스들을 조회합니다 (삭제 감지용)
+// GetActiveInterfaces retrieves active interfaces for a specific node (for deletion detection)
 func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
 	query := `
 		SELECT mi.id, mi.macaddress, mi.attached_node_name, mi.netplan_success, mi.address, mi.mtu, ms.cidr
@@ -248,7 +248,7 @@ func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName stri
 
 	rows, err := r.db.QueryContext(ctx, query, nodeName)
 	if err != nil {
-		return nil, errors.NewSystemError("데이터베이스 조회 실패", err)
+		return nil, errors.NewSystemError("database query failed", err)
 	}
 	defer rows.Close()
 
@@ -270,7 +270,7 @@ func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName stri
 			&cidr,
 		)
 		if err != nil {
-			r.logger.WithError(err).Error("행 스캔 실패")
+			r.logger.WithError(err).Error("failed to scan row")
 			continue
 		}
 
@@ -296,13 +296,13 @@ func (r *MySQLRepository) GetActiveInterfaces(ctx context.Context, nodeName stri
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, errors.NewSystemError("결과 처리 중 오류", err)
+		return nil, errors.NewSystemError("error processing results", err)
 	}
 
 	return interfaces, nil
 }
 
-// GetAllNodeInterfaces는 특정 노드의 모든 인터페이스들을 조회합니다 (netplan_success 상태 무관)
+// GetAllNodeInterfaces retrieves all interfaces for a specific node (regardless of netplan_success status)
 func (r *MySQLRepository) GetAllNodeInterfaces(ctx context.Context, nodeName string) ([]entities.NetworkInterface, error) {
 	query := `
 		SELECT mi.id, mi.macaddress, mi.attached_node_name, mi.netplan_success, mi.address, mi.mtu, ms.cidr
@@ -314,7 +314,7 @@ func (r *MySQLRepository) GetAllNodeInterfaces(ctx context.Context, nodeName str
 
 	rows, err := r.db.QueryContext(ctx, query, nodeName)
 	if err != nil {
-		return nil, errors.NewSystemError("데이터베이스 조회 실패", err)
+		return nil, errors.NewSystemError("database query failed", err)
 	}
 	defer rows.Close()
 
@@ -336,7 +336,7 @@ func (r *MySQLRepository) GetAllNodeInterfaces(ctx context.Context, nodeName str
 			&cidr,
 		)
 		if err != nil {
-			r.logger.WithError(err).Error("행 스캔 실패")
+			r.logger.WithError(err).Error("failed to scan row")
 			continue
 		}
 
@@ -362,10 +362,10 @@ func (r *MySQLRepository) GetAllNodeInterfaces(ctx context.Context, nodeName str
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, errors.NewSystemError("결과 처리 중 오류", err)
+		return nil, errors.NewSystemError("error processing results", err)
 	}
 
-	// 활성 인터페이스 조회 로그는 필요시에만 출력
+	// Active interface query logs are output only when needed
 
 	return interfaces, nil
 }

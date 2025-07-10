@@ -8,34 +8,34 @@ import (
 	"strings"
 )
 
-// RealOSDetector는 실제 OS를 감지하는 OSDetector 구현체입니다
+// RealOSDetector is an OSDetector implementation that detects the actual OS
 type RealOSDetector struct {
 	fileSystem interfaces.FileSystem
 }
 
-// NewRealOSDetector는 새로운 RealOSDetector를 생성합니다
+// NewRealOSDetector creates a new RealOSDetector
 func NewRealOSDetector(fs interfaces.FileSystem) interfaces.OSDetector {
 	return &RealOSDetector{
 		fileSystem: fs,
 	}
 }
 
-// DetectOS는 현재 운영체제 타입을 반환합니다
+// DetectOS returns the current operating system type
 func (d *RealOSDetector) DetectOS() (interfaces.OSType, error) {
-	// /etc/os-release 파일을 먼저 시도
+	// Try /etc/os-release file first
 	releaseInfo, err := d.parseOSRelease()
 	if err != nil {
-		return "", errors.NewSystemError("OS 감지 실패: /etc/os-release 파일을 읽을 수 없음", err)
+		return "", errors.NewSystemError("OS detection failed: cannot read /etc/os-release file", err)
 	}
 
 	id, ok := releaseInfo["ID"]
 	if !ok {
-		return "", errors.NewSystemError("OS 감지 실패: /etc/os-release 파일에 ID 필드가 없음", nil)
+		return "", errors.NewSystemError("OS detection failed: no ID field in /etc/os-release file", nil)
 	}
 
 	idLike, _ := releaseInfo["ID_LIKE"]
 
-	// OS 타입 결정 로직
+	// OS type determination logic
 	if id == "ubuntu" {
 		return interfaces.OSTypeUbuntu, nil
 	} else if id == "sles" || id == "suse" || strings.Contains(idLike, "suse") {
@@ -44,11 +44,11 @@ func (d *RealOSDetector) DetectOS() (interfaces.OSType, error) {
 		return interfaces.OSTypeRHEL, nil
 	}
 
-	// 알려진 ID와 일치하지 않으면 에러 반환
-	return "", errors.NewSystemError(fmt.Sprintf("지원하지 않는 OS 타입. ID: '%s', ID_LIKE: '%s'", id, idLike), nil)
+	// Return error if doesn't match known IDs
+	return "", errors.NewSystemError(fmt.Sprintf("unsupported OS type. ID: '%s', ID_LIKE: '%s'", id, idLike), nil)
 }
 
-// parseOSRelease는 /etc/os-release 파일을 파싱하여 map으로 반환합니다.
+// parseOSRelease parses /etc/os-release file and returns it as a map.
 func (d *RealOSDetector) parseOSRelease() (map[string]string, error) {
 	content, err := d.fileSystem.ReadFile("/host/etc/os-release")
 	if err != nil {

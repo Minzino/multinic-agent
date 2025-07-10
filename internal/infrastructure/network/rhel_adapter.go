@@ -13,13 +13,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// RHELAdapter는 nmcli를 사용하여 RHEL 계열 OS의 네트워크를 설정합니다.
+// RHELAdapter configures network for RHEL-based OS using nmcli.
 type RHELAdapter struct {
 	commandExecutor interfaces.CommandExecutor
 	logger          *logrus.Logger
 }
 
-// NewRHELAdapter는 새로운 RHELAdapter를 생성합니다.
+// NewRHELAdapter creates a new RHELAdapter.
 func NewRHELAdapter(
 	executor interfaces.CommandExecutor,
 	logger *logrus.Logger,
@@ -30,13 +30,13 @@ func NewRHELAdapter(
 	}
 }
 
-// GetConfigDir는 설정 파일이 저장될 디렉토리 경로를 반환합니다
-// RHEL은 nmcli를 사용하므로 실제 파일 경로가 아닌 빈 문자열 반환
+// GetConfigDir returns the directory path where configuration files are stored
+// RHEL uses nmcli so returns empty string instead of actual file path
 func (a *RHELAdapter) GetConfigDir() string {
 	return ""
 }
 
-// Configure는 nmcli를 사용하여 네트워크 인터페이스를 설정합니다.
+// Configure configures network interface using nmcli.
 func (a *RHELAdapter) Configure(ctx context.Context, iface entities.NetworkInterface, name entities.InterfaceName) error {
 	ifaceName := name.String()
 	macAddress := iface.MacAddress
@@ -44,56 +44,56 @@ func (a *RHELAdapter) Configure(ctx context.Context, iface entities.NetworkInter
 	a.logger.WithFields(logrus.Fields{
 		"interface": ifaceName,
 		"mac":       macAddress,
-	}).Info("nmcli를 사용하여 RHEL 인터페이스 설정 시작")
+	}).Info("Starting RHEL interface configuration with nmcli")
 
-	// 1. 기존 연결이 있다면 삭제
+	// 1. Delete existing connection if any
 	_ = a.Rollback(ctx, ifaceName)
 
-	// 2. 새로운 연결 추가
+	// 2. Add new connection
 	addCmd := []string{
 		"connection", "add", "type", "ethernet", "con-name", ifaceName, "ifname", ifaceName, "mac", macAddress,
 	}
 	if _, err := a.commandExecutor.ExecuteWithTimeout(ctx, 30*time.Second, "nmcli", addCmd...); err != nil {
-		return errors.NewNetworkError(fmt.Sprintf("nmcli connection add 실패: %s", ifaceName), err)
+		return errors.NewNetworkError(fmt.Sprintf("nmcli connection add failed: %s", ifaceName), err)
 	}
 
-	// 3. IP 주소 할당 비활성화 (인터페이스만 연결)
+	// 3. Disable IP address assignment (connect interface only)
 	disableIPv4Cmd := []string{"connection", "modify", ifaceName, "ipv4.method", "disabled"}
 	if _, err := a.commandExecutor.ExecuteWithTimeout(ctx, 30*time.Second, "nmcli", disableIPv4Cmd...); err != nil {
-		return errors.NewNetworkError(fmt.Sprintf("nmcli ipv4.method disabled 실패: %s", ifaceName), err)
+		return errors.NewNetworkError(fmt.Sprintf("nmcli ipv4.method disabled failed: %s", ifaceName), err)
 	}
 
 	disableIPv6Cmd := []string{"connection", "modify", ifaceName, "ipv6.method", "disabled"}
 	if _, err := a.commandExecutor.ExecuteWithTimeout(ctx, 30*time.Second, "nmcli", disableIPv6Cmd...); err != nil {
-		return errors.NewNetworkError(fmt.Sprintf("nmcli ipv6.method disabled 실패: %s", ifaceName), err)
+		return errors.NewNetworkError(fmt.Sprintf("nmcli ipv6.method disabled failed: %s", ifaceName), err)
 	}
 
-	// 4. 연결 활성화
+	// 4. Activate connection
 	upCmd := []string{"connection", "up", ifaceName}
 	if _, err := a.commandExecutor.ExecuteWithTimeout(ctx, 30*time.Second, "nmcli", upCmd...); err != nil {
-		// 활성화 실패 시 롤백
+		// Rollback on activation failure
 		if rollbackErr := a.Rollback(ctx, ifaceName); rollbackErr != nil {
-			a.logger.WithError(rollbackErr).Warn("nmcli connection up 실패 후 롤백 중 에러 발생")
+			a.logger.WithError(rollbackErr).Warn("Error during rollback after nmcli connection up failure")
 		}
-		return errors.NewNetworkError(fmt.Sprintf("nmcli connection up 실패: %s", ifaceName), err)
+		return errors.NewNetworkError(fmt.Sprintf("nmcli connection up failed: %s", ifaceName), err)
 	}
 
-	a.logger.WithField("interface", ifaceName).Info("nmcli 인터페이스 설정 완료")
+	a.logger.WithField("interface", ifaceName).Info("nmcli interface configuration completed")
 	return nil
 }
 
-// Validate는 설정된 인터페이스가 정상적으로 활성화되었는지 검증합니다.
+// Validate verifies that the configured interface is properly activated.
 func (a *RHELAdapter) Validate(ctx context.Context, name entities.InterfaceName) error {
 	ifaceName := name.String()
-	a.logger.WithField("interface", ifaceName).Info("nmcli 인터페이스 검증 시작")
+	a.logger.WithField("interface", ifaceName).Info("Starting nmcli interface validation")
 
-	// `nmcli device status`를 사용하여 상태 확인
-	// 출력 예시: DEVICE  TYPE      STATE      CONNECTION
+	// Check status using `nmcli device status`
+	// Output example: DEVICE  TYPE      STATE      CONNECTION
 	//           eth0    ethernet  connected  eth0
 	//           multinic0 ethernet  connected  multinic0
 	output, err := a.commandExecutor.ExecuteWithTimeout(ctx, 30*time.Second, "nmcli", "device", "status")
 	if err != nil {
-		return errors.NewNetworkError(fmt.Sprintf("nmcli device status 실행 실패: %s", ifaceName), err)
+		return errors.NewNetworkError(fmt.Sprintf("nmcli device status execution failed: %s", ifaceName), err)
 	}
 
 	lines := strings.Split(string(output), "\n")
@@ -101,37 +101,37 @@ func (a *RHELAdapter) Validate(ctx context.Context, name entities.InterfaceName)
 		if strings.HasPrefix(line, ifaceName) {
 			fields := strings.Fields(line)
 			if len(fields) >= 3 && fields[2] == "connected" {
-				a.logger.WithField("interface", ifaceName).Info("nmcli 인터페이스 검증 성공")
+				a.logger.WithField("interface", ifaceName).Info("nmcli interface validation successful")
 				return nil
 			}
-			return errors.NewNetworkError(fmt.Sprintf("인터페이스 %s의 상태가 'connected'가 아님: %s", ifaceName, line), nil)
+			return errors.NewNetworkError(fmt.Sprintf("Interface %s state is not 'connected': %s", ifaceName, line), nil)
 		}
 	}
 
-	return errors.NewNetworkError(fmt.Sprintf("nmcli device status 출력에서 인터페이스 %s를 찾을 수 없음", ifaceName), nil)
+	return errors.NewNetworkError(fmt.Sprintf("Interface %s not found in nmcli device status output", ifaceName), nil)
 }
 
-// Rollback은 nmcli를 사용하여 인터페이스 설정을 제거합니다.
+// Rollback removes interface configuration using nmcli.
 func (a *RHELAdapter) Rollback(ctx context.Context, name string) error {
-	a.logger.WithField("interface", name).Info("nmcli 인터페이스 롤백/삭제 시작")
+	a.logger.WithField("interface", name).Info("Starting nmcli interface rollback/deletion")
 
-	// 연결 비활성화
+	// Deactivate connection
 	downCmd := []string{"connection", "down", name}
 	_, err := a.commandExecutor.ExecuteWithTimeout(ctx, 30*time.Second, "nmcli", downCmd...)
 	if err != nil {
-		// 연결이 존재하지 않거나 이미 내려가 있는 경우 등은 에러로 간주하지 않음
-		a.logger.WithError(err).WithField("interface", name).Debug("nmcli connection down 중 에러 발생 (무시 가능)")
+		// Not treating as error if connection doesn't exist or already down
+		a.logger.WithError(err).WithField("interface", name).Debug("Error during nmcli connection down (can be ignored)")
 	}
 
-	// 연결 삭제
+	// Delete connection
 	deleteCmd := []string{"connection", "delete", name}
 	_, err = a.commandExecutor.ExecuteWithTimeout(ctx, 30*time.Second, "nmcli", deleteCmd...)
 	if err != nil {
-		// 연결이 존재하지 않는 경우 등은 에러로 간주하지 않음
-		a.logger.WithError(err).WithField("interface", name).Debug("nmcli connection delete 중 에러 발생 (무시 가능)")
-		return nil // 롤백의 목적은 제거이므로, 이미 없어도 성공으로 간주
+		// Not treating as error if connection doesn't exist
+		a.logger.WithError(err).WithField("interface", name).Debug("Error during nmcli connection delete (can be ignored)")
+		return nil // Purpose of rollback is removal, so consider success even if already gone
 	}
 
-	a.logger.WithField("interface", name).Info("nmcli 인터페이스 롤백/삭제 완료")
+	a.logger.WithField("interface", name).Info("nmcli interface rollback/deletion completed")
 	return nil
 }

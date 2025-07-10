@@ -12,12 +12,7 @@ OpenStack 환경에서 다중 네트워크 인터페이스의 **전체 생명주
 - **사용하지 않는 인터페이스 자동 정리**: OpenStack에서 삭제된 인터페이스를 시스템에서도 자동 제거
 - **안전한 설정 적용**: 설정 실패 시 이전 상태로 자동 복구
 - **다중 OS 지원**: Ubuntu(Netplan) 및 SUSE(Wicked) 지원
-
-### 신규 기능 (v2)
-- **모든 netplan 파일 형식 지원**: 구형/신형 설정 파일 모두 호환
 - **설정 변경 자동 감지**: IP 주소, 네트워크 대역, MTU 등의 변경사항을 실시간으로 감지하고 업데이트
-- **스마트 로깅**: 실제 작업이 있을 때만 로그 출력
-- **확장 가능한 구조**: 깔끔한 코드 구조로 새로운 기능 추가 용이
 
 ## 📋 요구사항
 
@@ -316,24 +311,3 @@ CREATE TABLE multi_interface (
 - 최소 권한 원칙: 에이전트는 필요한 DB 테이블에만 접근
 - 네트워크 정책: 필요한 포트만 개방 (8080 for health, DB port)
 - 기존 시스템 인터페이스 (eth0, ens* 등) 보호
-
-## 📜 라이선스
-
-이 프로젝트는 MIT 라이선스 하에 배포됩니다. 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.
-
-## 🤝 기여하기
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📞 지원
-
-- 이슈 트래커: [GitHub Issues](https://github.com/your-org/multinic-agent-v2/issues)
-- 문서: [Wiki](https://github.com/your-org/multinic-agent-v2/wiki)
-
----
-
-Made with ❤️ by the Infrastructure Team
