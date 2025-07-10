@@ -2,17 +2,35 @@ package usecases
 
 import (
 	"context"
+	"fmt"
 	"multinic-agent-v2/internal/domain/entities"
 	"multinic-agent-v2/internal/domain/errors"
 	"multinic-agent-v2/internal/domain/interfaces"
 	"multinic-agent-v2/internal/domain/services"
 	"net"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
+
+// NetplanYAML represents the Netplan configuration structure
+type NetplanYAML struct {
+	Network struct {
+		Ethernets map[string]struct {
+			DHCP4     bool   `yaml:"dhcp4"`
+			MTU       int    `yaml:"mtu,omitempty"`
+			Addresses []string `yaml:"addresses,omitempty"`
+			Match     struct {
+				MACAddress string `yaml:"macaddress"`
+			} `yaml:"match"`
+			SetName string `yaml:"set-name"`
+		} `yaml:"ethernets"`
+		Version int `yaml:"version"`
+	} `yaml:"network"`
+}
 
 // ConfigureNetworkUseCase는 네트워크 설정을 처리하는 유스케이스입니다
 type ConfigureNetworkUseCase struct {
@@ -82,11 +100,40 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 			continue
 		}
 
-		// Netplan 설정 파일 경로
-		configPath := filepath.Join(uc.configurer.GetConfigDir(), fmt.Sprintf("9%d-%s.yaml", extractInterfaceIndex(interfaceName.String()), interfaceName.String()))
+		// 실제 존재하는 Netplan 설정 파일 찾기
+		configPath := uc.findNetplanFileForInterface(interfaceName.String())
+		if configPath == "" {
+			// 파일이 없으면 새로 생성할 경로 설정
+			configPath = filepath.Join(uc.configurer.GetConfigDir(), fmt.Sprintf("9%d-%s.yaml", extractInterfaceIndex(interfaceName.String()), interfaceName.String()))
+		}
+
+		uc.logger.WithFields(logrus.Fields{
+			"interface_id":   iface.ID,
+			"interface_name": interfaceName.String(),
+			"mac_address":    iface.MacAddress,
+			"config_path":    configPath,
+			"file_exists":    uc.fileSystem.Exists(configPath),
+			"status":         iface.Status,
+			"db_address":     iface.Address,
+			"db_mtu":         iface.MTU,
+			"db_cidr":        iface.CIDR,
+		}).Debug("인터페이스 처리 확인 중")
 
 		// 파일이 존재하지 않거나, 드리프트가 발생했거나, 아직 설정되지 않은 경우 처리
-		if !uc.fileSystem.Exists(configPath) || uc.isDrifted(ctx, iface, configPath) || iface.Status == entities.StatusPending {
+		fileExists := uc.fileSystem.Exists(configPath)
+		isDrifted := false
+		if fileExists {
+			isDrifted = uc.isDrifted(ctx, iface, configPath)
+		}
+		
+		uc.logger.WithFields(logrus.Fields{
+			"file_exists": fileExists,
+			"is_drifted":  isDrifted,
+			"status":      iface.Status,
+			"should_process": !fileExists || isDrifted || iface.Status == entities.StatusPending,
+		}).Debug("인터페이스 처리 조건 확인")
+		
+		if !fileExists || isDrifted || iface.Status == entities.StatusPending {
 			if err := uc.processInterface(ctx, iface, interfaceName); err != nil {
 				uc.logger.WithFields(logrus.Fields{
 					"interface_id":   iface.ID,
@@ -187,10 +234,12 @@ func (uc *ConfigureNetworkUseCase) isDrifted(ctx context.Context, dbIface entiti
 
 	var fileMAC, fileAddress, fileCIDR string
 	var fileMTU int
+	var hasAddresses bool
 
 	for _, eth := range netplanData.Network.Ethernets {
 		fileMAC = eth.Match.MACAddress
-		if len(eth.Addresses) > 0 {
+		hasAddresses = len(eth.Addresses) > 0
+		if hasAddresses {
 			// Parse the full CIDR from the file
 			_, ipNet, err := net.ParseCIDR(eth.Addresses[0])
 			if err == nil {
@@ -220,12 +269,10 @@ func (uc *ConfigureNetworkUseCase) isDrifted(ctx context.Context, dbIface entiti
 	}
 
 	// 드리프트 감지 조건
-	isDrifted := (
-		(len(eth.Addresses) == 0 && dbIface.Address != "") ||
+	isDrifted := (!hasAddresses && dbIface.Address != "") ||
 		(dbIface.Address != fileAddress) ||
 		(dbIface.CIDR != fileCIDR) ||
 		(dbIface.MTU != fileMTU)
-	)
 
 	uc.logger.WithFields(logrus.Fields{
 		"interface_id":   dbIface.ID,
@@ -236,7 +283,7 @@ func (uc *ConfigureNetworkUseCase) isDrifted(ctx context.Context, dbIface entiti
 		"file_cidr":      fileCIDR,
 		"db_mtu":         dbIface.MTU,
 		"file_mtu":       fileMTU,
-		"drift_condition_1": (len(eth.Addresses) == 0 && dbIface.Address != ""),
+		"drift_condition_1": (!hasAddresses && dbIface.Address != ""),
 		"drift_condition_2": (dbIface.Address != fileAddress),
 		"drift_condition_3": (dbIface.CIDR != fileCIDR),
 		"drift_condition_4": (dbIface.MTU != fileMTU),
@@ -244,6 +291,25 @@ func (uc *ConfigureNetworkUseCase) isDrifted(ctx context.Context, dbIface entiti
 	}).Debug("드리프트 감지 상세 정보")
 
 	return isDrifted
+}
+
+// findNetplanFileForInterface는 해당 인터페이스의 실제 netplan 파일을 찾습니다
+func (uc *ConfigureNetworkUseCase) findNetplanFileForInterface(interfaceName string) string {
+	configDir := uc.configurer.GetConfigDir()
+	files, err := uc.fileSystem.ListFiles(configDir)
+	if err != nil {
+		uc.logger.WithError(err).Warn("Netplan 디렉토리 스캔 실패")
+		return ""
+	}
+
+	// 해당 인터페이스 이름을 포함하는 파일 찾기
+	for _, file := range files {
+		if strings.Contains(file, interfaceName) && strings.HasSuffix(file, ".yaml") {
+			return filepath.Join(configDir, file)
+		}
+	}
+
+	return ""
 }
 
 // extractInterfaceIndex는 인터페이스 이름에서 인덱스를 추출합니다

@@ -12,6 +12,9 @@ type NetworkConfigurer interface {
 
 	// Validate는 설정된 인터페이스가 정상 작동하는지 검증합니다
 	Validate(ctx context.Context, name entities.InterfaceName) error
+
+	// GetConfigDir는 설정 파일이 저장될 디렉토리 경로를 반환합니다
+	GetConfigDir() string
 }
 
 // NetworkRollbacker는 네트워크 설정 롤백을 처리하는 인터페이스입니다

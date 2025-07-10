@@ -37,6 +37,11 @@ func NewNetplanAdapter(
 	}
 }
 
+// GetConfigDir는 설정 파일이 저장될 디렉토리 경로를 반환합니다
+func (a *NetplanAdapter) GetConfigDir() string {
+	return a.configDir
+}
+
 // Configure는 네트워크 인터페이스를 설정합니다
 func (a *NetplanAdapter) Configure(ctx context.Context, iface entities.NetworkInterface, name entities.InterfaceName) error {
 	// 설정 파일 경로 생성
