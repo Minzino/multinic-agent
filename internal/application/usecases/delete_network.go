@@ -58,7 +58,7 @@ func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetwork
 
 	osType, err := uc.osDetector.DetectOS()
 	if err != nil {
-		return nil, fmt.Errorf("OS 감지 실패: %w", err)
+		return nil, fmt.Errorf("failed to detect OS: %w", err)
 	}
 
 	switch osType {
@@ -67,7 +67,7 @@ func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetwork
 	case interfaces.OSTypeRHEL:
 		return uc.executeNmcliCleanup(ctx, input)
 	default:
-		uc.logger.WithField("os_type", osType).Warn("지원하지 않는 OS 타입이므로 고아 인터페이스 삭제를 건너뜁니다")
+		uc.logger.WithField("os_type", osType).Warn("Skipping orphaned interface cleanup for unsupported OS type")
 		return &DeleteNetworkOutput{}, nil
 	}
 }
@@ -81,7 +81,7 @@ func (uc *DeleteNetworkUseCase) executeNetplanCleanup(ctx context.Context, input
 
 	orphanedFiles, err := uc.findOrphanedNetplanFiles(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("고아 netplan 파일 조회 실패: %w", err)
+		return nil, fmt.Errorf("failed to find orphaned netplan files: %w", err)
 	}
 
 	if len(orphanedFiles) == 0 {
@@ -92,7 +92,7 @@ func (uc *DeleteNetworkUseCase) executeNetplanCleanup(ctx context.Context, input
 	uc.logger.WithFields(logrus.Fields{
 		"node_name":      input.NodeName,
 		"orphaned_files": len(orphanedFiles),
-	}).Info("고아 netplan 파일 감지 완료 - 삭제 프로세스 시작")
+	}).Info("Orphaned netplan files detected - starting cleanup process")
 
 	for _, fileName := range orphanedFiles {
 		interfaceName := uc.extractInterfaceNameFromFile(fileName)
@@ -101,8 +101,8 @@ func (uc *DeleteNetworkUseCase) executeNetplanCleanup(ctx context.Context, input
 				"file_name":      fileName,
 				"interface_name": interfaceName,
 				"error":          err.Error(),
-			}).Error("netplan 파일 삭제 실패")
-			output.Errors = append(output.Errors, fmt.Errorf("netplan 파일 %s 삭제 실패: %w", fileName, err))
+			}).Error("Failed to delete netplan file")
+			output.Errors = append(output.Errors, fmt.Errorf("failed to delete netplan file %s: %w", fileName, err))
 		} else {
 			output.DeletedInterfaces = append(output.DeletedInterfaces, interfaceName)
 			output.TotalDeleted++
@@ -120,7 +120,7 @@ func (uc *DeleteNetworkUseCase) executeNmcliCleanup(ctx context.Context, input D
 
 	connections, err := uc.namingService.ListNmcliConnectionNames(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("nmcli 연결 목록 조회 실패: %w", err)
+		return nil, fmt.Errorf("failed to list nmcli connections: %w", err)
 	}
 
 	var orphanedConnections []string
@@ -134,7 +134,7 @@ func (uc *DeleteNetworkUseCase) executeNmcliCleanup(ctx context.Context, input D
 			uc.logger.WithFields(logrus.Fields{
 				"connection_name": connName,
 				"error":           err,
-			}).Warn("인터페이스 존재 여부 확인 중 에러 발생")
+			}).Warn("Error occurred while checking interface existence")
 			continue
 		}
 
@@ -144,22 +144,22 @@ func (uc *DeleteNetworkUseCase) executeNmcliCleanup(ctx context.Context, input D
 	}
 
 	if len(orphanedConnections) == 0 {
-		uc.logger.Debug("삭제 대상 고아 nmcli 연결이 없습니다")
+		uc.logger.Debug("No orphaned nmcli connections to delete")
 		return output, nil
 	}
 
 	uc.logger.WithFields(logrus.Fields{
 		"node_name":            input.NodeName,
 		"orphaned_connections": orphanedConnections,
-	}).Info("고아 nmcli 연결 감지 완료 - 삭제 프로세스 시작")
+	}).Info("Orphaned nmcli connections detected - starting cleanup process")
 
 	for _, connName := range orphanedConnections {
 		if err := uc.rollbacker.Rollback(ctx, connName); err != nil {
 			uc.logger.WithFields(logrus.Fields{
 				"connection_name": connName,
 				"error":           err,
-			}).Error("nmcli 연결 삭제 실패")
-			output.Errors = append(output.Errors, fmt.Errorf("nmcli 연결 %s 삭제 실패: %w", connName, err))
+			}).Error("Failed to delete nmcli connection")
+			output.Errors = append(output.Errors, fmt.Errorf("failed to delete nmcli connection %s: %w", connName, err))
 		} else {
 			output.DeletedInterfaces = append(output.DeletedInterfaces, connName)
 			output.TotalDeleted++
@@ -176,18 +176,18 @@ func (uc *DeleteNetworkUseCase) findOrphanedNetplanFiles(ctx context.Context) ([
 	netplanDir := "/etc/netplan"
 	files, err := uc.namingService.ListNetplanFiles(netplanDir)
 	if err != nil {
-		return nil, fmt.Errorf("netplan 디렉토리 스캔 실패: %w", err)
+		return nil, fmt.Errorf("failed to scan netplan directory: %w", err)
 	}
 
 	// 현재 노드의 모든 활성 인터페이스 가져오기 (DB에서)
 	hostname, err := uc.namingService.GetHostname()
 	if err != nil {
-		return nil, fmt.Errorf("호스트네임 조회 실패: %w", err)
+		return nil, fmt.Errorf("failed to get hostname: %w", err)
 	}
 
 	activeInterfaces, err := uc.repository.GetAllNodeInterfaces(ctx, hostname)
 	if err != nil {
-		return nil, fmt.Errorf("활성 인터페이스 조회 실패: %w", err)
+		return nil, fmt.Errorf("failed to get active interfaces: %w", err)
 	}
 
 	// MAC 주소 맵 생성 (빠른 조회를 위해)
@@ -209,7 +209,7 @@ func (uc *DeleteNetworkUseCase) findOrphanedNetplanFiles(ctx context.Context) ([
 			uc.logger.WithFields(logrus.Fields{
 				"file_name": fileName,
 				"error":     err.Error(),
-			}).Warn("netplan 파일에서 MAC 주소 추출 실패")
+			}).Warn("Failed to extract MAC address from netplan file")
 			continue
 		}
 
@@ -220,7 +220,7 @@ func (uc *DeleteNetworkUseCase) findOrphanedNetplanFiles(ctx context.Context) ([
 				"file_name":      fileName,
 				"interface_name": interfaceName,
 				"mac_address":    macAddress,
-			}).Info("고아 netplan 파일 발견")
+			}).Info("Found orphaned netplan file")
 			orphanedFiles = append(orphanedFiles, fileName)
 		}
 	}
@@ -268,7 +268,7 @@ func (uc *DeleteNetworkUseCase) checkInterfaceExists(ctx context.Context, interf
 	if err != nil {
 		// 인터페이스가 존재하지 않으면 에러가 발생
 		if strings.Contains(err.Error(), "does not exist") ||
-			strings.Contains(err.Error(), "정보 조회 실패") {
+			strings.Contains(err.Error(), "failed to get info") {
 			return false, nil
 		}
 		return false, err
@@ -283,17 +283,17 @@ func (uc *DeleteNetworkUseCase) deleteNetplanFile(ctx context.Context, fileName,
 	uc.logger.WithFields(logrus.Fields{
 		"file_name":      fileName,
 		"interface_name": interfaceName,
-	}).Info("고아 netplan 파일 삭제 시작")
+	}).Info("Starting to delete orphaned netplan file")
 
 	// Rollback 호출로 파일 삭제 및 netplan 재적용
 	if err := uc.rollbacker.Rollback(ctx, interfaceName); err != nil {
-		return fmt.Errorf("netplan 파일 롤백 실패: %w", err)
+		return fmt.Errorf("failed to rollback netplan file: %w", err)
 	}
 
 	uc.logger.WithFields(logrus.Fields{
 		"file_name":      fileName,
 		"interface_name": interfaceName,
-	}).Info("고아 netplan 파일 삭제 성공")
+	}).Info("Successfully deleted orphaned netplan file")
 
 	return nil
 }
@@ -302,7 +302,7 @@ func (uc *DeleteNetworkUseCase) deleteNetplanFile(ctx context.Context, fileName,
 func (uc *DeleteNetworkUseCase) getMACAddressFromNetplanFile(filePath string) (string, error) {
 	content, err := uc.fileSystem.ReadFile(filePath)
 	if err != nil {
-		return "", fmt.Errorf("파일 읽기 실패: %w", err)
+		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
 	// Simple YAML structure for netplan files
@@ -318,7 +318,7 @@ func (uc *DeleteNetworkUseCase) getMACAddressFromNetplanFile(filePath string) (s
 
 	var config NetplanConfig
 	if err := yaml.Unmarshal(content, &config); err != nil {
-		return "", fmt.Errorf("YAML 파싱 실패: %w", err)
+		return "", fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
 	// Extract MAC address from the first ethernet configuration
@@ -328,5 +328,5 @@ func (uc *DeleteNetworkUseCase) getMACAddressFromNetplanFile(filePath string) (s
 		}
 	}
 
-	return "", fmt.Errorf("MAC 주소를 찾을 수 없음")
+	return "", fmt.Errorf("MAC address not found")
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// NetworkManagerFactory는 OS에 따라 적절한 네트워크 관리자를 생성하는 팩토리입니다
+// NetworkManagerFactory is a factory that creates appropriate network managers based on OS
 type NetworkManagerFactory struct {
 	osDetector      interfaces.OSDetector
 	commandExecutor interfaces.CommandExecutor
@@ -15,7 +15,7 @@ type NetworkManagerFactory struct {
 	logger          *logrus.Logger
 }
 
-// NewNetworkManagerFactory는 새로운 NetworkManagerFactory를 생성합니다
+// NewNetworkManagerFactory creates a new NetworkManagerFactory
 func NewNetworkManagerFactory(
 	osDetector interfaces.OSDetector,
 	executor interfaces.CommandExecutor,
@@ -30,14 +30,14 @@ func NewNetworkManagerFactory(
 	}
 }
 
-// CreateNetworkConfigurer는 OS에 따라 적절한 NetworkConfigurer를 생성합니다
+// CreateNetworkConfigurer creates appropriate NetworkConfigurer based on OS
 func (f *NetworkManagerFactory) CreateNetworkConfigurer() (interfaces.NetworkConfigurer, error) {
 	osType, err := f.osDetector.DetectOS()
 	if err != nil {
-		return nil, errors.NewSystemError("OS 감지 실패", err)
+		return nil, errors.NewSystemError("failed to detect OS", err)
 	}
 
-	f.logger.WithField("os_type", osType).Debug("OS 타입 감지 완료")
+	f.logger.WithField("os_type", osType).Debug("OS type detected")
 
 	switch osType {
 	case interfaces.OSTypeUbuntu:
@@ -48,9 +48,9 @@ func (f *NetworkManagerFactory) CreateNetworkConfigurer() (interfaces.NetworkCon
 		), nil
 
 	case interfaces.OSTypeSUSE:
-		// SUSE 어댑터가 필요하다면 여기에 구현을 추가합니다.
-		// 현재는 RHEL/Ubuntu에 집중합니다.
-		return nil, errors.NewSystemError("SUSE 어댑터는 현재 구현되지 않았습니다", nil)
+		// If SUSE adapter is needed, add implementation here.
+		// Currently focusing on RHEL/Ubuntu.
+		return nil, errors.NewSystemError("SUSE adapter is not currently implemented", nil)
 
 	case interfaces.OSTypeRHEL:
 		return NewRHELAdapter(
@@ -59,22 +59,22 @@ func (f *NetworkManagerFactory) CreateNetworkConfigurer() (interfaces.NetworkCon
 		), nil
 
 	default:
-		return nil, errors.NewSystemError("지원하지 않는 OS 타입", nil)
+		return nil, errors.NewSystemError("unsupported OS type", nil)
 	}
 }
 
-// CreateNetworkRollbacker는 OS에 따라 적절한 NetworkRollbacker를 생성합니다
+// CreateNetworkRollbacker creates appropriate NetworkRollbacker based on OS
 func (f *NetworkManagerFactory) CreateNetworkRollbacker() (interfaces.NetworkRollbacker, error) {
-	// NetworkConfigurer와 동일한 인스턴스를 반환 (같은 구현체가 두 인터페이스를 모두 구현)
+	// Return same instance as NetworkConfigurer (same implementation implements both interfaces)
 	configurer, err := f.CreateNetworkConfigurer()
 	if err != nil {
 		return nil, err
 	}
 
-	// 타입 어서션을 통해 NetworkRollbacker로 변환
+	// Convert to NetworkRollbacker through type assertion
 	if rollbacker, ok := configurer.(interfaces.NetworkRollbacker); ok {
 		return rollbacker, nil
 	}
 
-	return nil, errors.NewSystemError("네트워크 관리자가 롤백 기능을 지원하지 않음", nil)
+	return nil, errors.NewSystemError("network manager does not support rollback functionality", nil)
 }
