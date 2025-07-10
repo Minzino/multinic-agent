@@ -47,9 +47,7 @@ func NewDeleteNetworkUseCase(
 
 // Execute는 고아 인터페이스 삭제 유스케이스를 실행합니다
 func (uc *DeleteNetworkUseCase) Execute(ctx context.Context, input DeleteNetworkInput) (*DeleteNetworkOutput, error) {
-	uc.logger.WithFields(logrus.Fields{
-		"node_name": input.NodeName,
-	}).Debug("고아 인터페이스 삭제 프로세스 시작")
+	// 삭제 프로세스 시작 로그는 실제 삭제가 있을 때만 출력
 
 	osType, err := uc.osDetector.DetectOS()
 	if err != nil {
@@ -80,8 +78,7 @@ func (uc *DeleteNetworkUseCase) executeNetplanCleanup(ctx context.Context, input
 	}
 
 	if len(orphanedFiles) == 0 {
-				uc.logger.Debug("고아 인터페이스 삭제 프로세스 시작")
-		uc.logger.Debug("삭제 대상 고아 netplan 파일이 없습니다")
+		// 삭제할 파일이 없으면 조용히 종료
 		return output, nil
 	}
 

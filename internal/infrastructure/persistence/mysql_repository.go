@@ -365,10 +365,7 @@ func (r *MySQLRepository) GetAllNodeInterfaces(ctx context.Context, nodeName str
 		return nil, errors.NewSystemError("결과 처리 중 오류", err)
 	}
 
-	r.logger.WithFields(logrus.Fields{
-		"node_name":         nodeName,
-		"active_interfaces": len(interfaces),
-	}).Debug("활성 인터페이스 조회 완료")
+	// 활성 인터페이스 조회 로그는 필요시에만 출력
 
 	return interfaces, nil
 }
