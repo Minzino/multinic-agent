@@ -37,7 +37,7 @@ func (f *NetworkManagerFactory) CreateNetworkConfigurer() (interfaces.NetworkCon
 		return nil, errors.NewSystemError("OS 감지 실패", err)
 	}
 
-	f.logger.WithField("os_type", osType).Info("OS 타입 감지 완료")
+	f.logger.WithField("os_type", osType).Debug("OS 타입 감지 완료")
 
 	switch osType {
 	case interfaces.OSTypeUbuntu:

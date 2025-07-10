@@ -81,12 +81,7 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 		return nil, errors.NewSystemError("노드 인터페이스 조회 실패", err)
 	}
 
-	if len(allInterfaces) > 0 {
-		uc.logger.WithFields(logrus.Fields{
-			"node_name":     input.NodeName,
-			"total_interfaces": len(allInterfaces),
-		}).Info("처리할 인터페이스 발견")
-	}
+	// 실제로 처리할 인터페이스가 있을 때만 로그 출력하도록 나중에 확인
 
 	var processedCount, failedCount int
 
