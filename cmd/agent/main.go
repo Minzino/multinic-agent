@@ -178,9 +178,8 @@ func (a *Application) processNetworkConfigurations(ctx context.Context) error {
 		healthService.IncrementFailedConfigs()
 	}
 
-	// 처리 결과 로깅
-	totalProcessed := configOutput.TotalCount + deleteOutput.TotalDeleted
-	if totalProcessed > 0 {
+	// 실제로 처리된 것이 있을 때만 로그 출력
+	if configOutput.ProcessedCount > 0 || configOutput.FailedCount > 0 || deleteOutput.TotalDeleted > 0 {
 		a.logger.WithFields(logrus.Fields{
 			"config_processed": configOutput.ProcessedCount,
 			"config_failed":    configOutput.FailedCount,
