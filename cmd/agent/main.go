@@ -40,6 +40,12 @@ func main() {
 	if err != nil {
 		logger.WithError(err).Fatal("설정 로드 실패")
 	}
+
+	// 의존성 주입 컨테이너 생성
+	appContainer, err := container.NewContainer(cfg, logger)
+	if err != nil {
+		logger.WithError(err).Fatal("의존성 주입 컨테이너 생성 실패")
+	}
 	defer func() {
 		if err := appContainer.Close(); err != nil {
 			logger.WithError(err).Error("컨테이너 정리 실패")
