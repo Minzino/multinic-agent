@@ -1058,3 +1058,78 @@ Debug 레벨에서도 30초마다 반복되는 로그:
 - **모든 로그 레벨**: 정상 상태에서 완전히 조용함
 - **실제 작업 시**: 해당 작업 로그만 출력
 - **시작 시**: 필수 정보(헬스체크, 에이전트 시작)만 출력
+
+## 고아 인터페이스 감지 로직 개선 (2025-07-10)
+
+### 문제 상황
+기존 고아 감지 로직이 잘못 작동하여 방금 생성한 인터페이스를 30초 후에 삭제하는 무한 루프 발생:
+
+```
+6:38:50 - multinic1 생성 성공 (interface_id: 23)
+6:39:20 - multinic1을 고아로 잘못 판단하여 삭제
+6:39:50 - 같은 interface_id: 23으로 다시 생성 시도
+6:39:54 - "네트워크 인터페이스가 존재하지 않음" 에러
+```
+
+### 원인 분석
+1. **기존 로직의 문제점**:
+   - 고아 판단 기준: `netplan 파일 존재 + ip addr show 실패 = 고아`
+   - OpenStack 포트가 없어서 인터페이스 생성에 실패한 경우도 고아로 판단
+   - DB에는 여전히 레코드가 있는데도 파일을 삭제
+
+2. **실제 시나리오**:
+   ```
+   1. DB에서 interface 정보 가져옴 (netplan_success=0)
+   2. netplan 파일 생성 → netplan apply
+   3. OpenStack 포트가 없어서 실제 인터페이스 생성 실패
+   4. 30초 후 고아 감지: 파일은 있는데 인터페이스가 없음 → 삭제
+   5. DB에 여전히 레코드가 있으므로 다시 생성 시도 → 무한 반복
+   ```
+
+### 해결 방법: DB 기반 고아 감지
+
+#### 변경 전
+```go
+// 시스템 인터페이스 존재 여부로 판단
+exists, err := uc.checkInterfaceExists(ctx, interfaceName)
+if !exists {
+    // 고아로 판단
+}
+```
+
+#### 변경 후
+```go
+// DB의 활성 인터페이스 목록과 비교
+activeInterfaces, err := uc.repository.GetAllNodeInterfaces(ctx, hostname)
+activeMACAddresses := make(map[string]bool)
+for _, iface := range activeInterfaces {
+    activeMACAddresses[strings.ToLower(iface.MacAddress)] = true
+}
+
+// netplan 파일의 MAC 주소가 DB에 없으면 고아
+macAddress, err := uc.getMACAddressFromNetplanFile(filePath)
+if !activeMACAddresses[strings.ToLower(macAddress)] {
+    // 진짜 고아 파일
+}
+```
+
+### 구현 변경사항
+
+1. **DeleteNetworkUseCase 수정**:
+   - repository와 fileSystem 의존성 추가
+   - findOrphanedNetplanFiles 메서드를 DB 기반으로 재구현
+   - getMACAddressFromNetplanFile 메서드 추가
+
+2. **의존성 주입 구조 업데이트**:
+   - Container에서 DeleteNetworkUseCase 생성 시 repository, fileSystem 전달
+   - 테스트 코드도 새로운 시그니처에 맞게 수정
+
+3. **테스트 개선**:
+   - Mock 기반으로 DB 활성 인터페이스 시뮬레이션
+   - netplan 파일 내용 파싱 테스트 추가
+
+### 효과
+- ✅ 생성 실패한 인터페이스를 고아로 잘못 판단하는 문제 해결
+- ✅ DB가 진실의 원천(source of truth)이 되어 일관성 향상
+- ✅ Controller가 삭제한 인터페이스만 정확히 정리
+- ✅ 무한 루프 문제 완전 해결

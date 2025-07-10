@@ -130,3 +130,21 @@ func (s *InterfaceNamingService) ListNetplanFiles(dir string) ([]string, error) 
 
 	return files, nil
 }
+
+// GetHostname은 시스템의 호스트네임을 반환합니다
+func (s *InterfaceNamingService) GetHostname() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	output, err := s.commandExecutor.ExecuteWithTimeout(ctx, 5*time.Second, "hostname")
+	if err != nil {
+		return "", fmt.Errorf("호스트네임 조회 실패: %w", err)
+	}
+
+	hostname := strings.TrimSpace(string(output))
+	if hostname == "" {
+		return "", fmt.Errorf("호스트네임이 비어있습니다")
+	}
+
+	return hostname, nil
+}
