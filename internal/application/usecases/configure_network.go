@@ -107,17 +107,7 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 			configPath = filepath.Join(uc.configurer.GetConfigDir(), fmt.Sprintf("9%d-%s.yaml", extractInterfaceIndex(interfaceName.String()), interfaceName.String()))
 		}
 
-		uc.logger.WithFields(logrus.Fields{
-			"interface_id":   iface.ID,
-			"interface_name": interfaceName.String(),
-			"mac_address":    iface.MacAddress,
-			"config_path":    configPath,
-			"file_exists":    uc.fileSystem.Exists(configPath),
-			"status":         iface.Status,
-			"db_address":     iface.Address,
-			"db_mtu":         iface.MTU,
-			"db_cidr":        iface.CIDR,
-		}).Debug("인터페이스 처리 확인 중")
+		// 디버그 로그는 드리프트가 감지되거나 처리가 필요한 경우에만 출력
 
 		// 파일이 존재하지 않거나, 드리프트가 발생했거나, 아직 설정되지 않은 경우 처리
 		fileExists := uc.fileSystem.Exists(configPath)
@@ -125,13 +115,6 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 		if fileExists {
 			isDrifted = uc.isDrifted(ctx, iface, configPath)
 		}
-		
-		uc.logger.WithFields(logrus.Fields{
-			"file_exists": fileExists,
-			"is_drifted":  isDrifted,
-			"status":      iface.Status,
-			"should_process": !fileExists || isDrifted || iface.Status == entities.StatusPending,
-		}).Debug("인터페이스 처리 조건 확인")
 		
 		if !fileExists || isDrifted || iface.Status == entities.StatusPending {
 			if err := uc.processInterface(ctx, iface, interfaceName); err != nil {
@@ -149,11 +132,6 @@ func (uc *ConfigureNetworkUseCase) Execute(ctx context.Context, input ConfigureN
 			} else {
 				processedCount++
 			}
-		} else {
-			uc.logger.WithFields(logrus.Fields{
-				"interface_id":   iface.ID,
-				"interface_name": interfaceName.String(),
-			}).Debug("인터페이스 설정 최신 상태 유지")
 		}
 	}
 
@@ -241,10 +219,10 @@ func (uc *ConfigureNetworkUseCase) isDrifted(ctx context.Context, dbIface entiti
 		hasAddresses = len(eth.Addresses) > 0
 		if hasAddresses {
 			// Parse the full CIDR from the file
-			_, ipNet, err := net.ParseCIDR(eth.Addresses[0])
+			ip, ipNet, err := net.ParseCIDR(eth.Addresses[0])
 			if err == nil {
-				fileAddress = ipNet.IP.String() // Get just the IP part
-				fileCIDR = ipNet.String()       // Get the full CIDR string (e.g., "1.1.1.0/24")
+				fileAddress = ip.String()      // Get the actual IP address (e.g., "1.1.1.146")
+				fileCIDR = ipNet.String()      // Get the network CIDR (e.g., "1.1.1.0/24")
 			} else {
 				// If parsing fails, use the raw address and an empty CIDR
 				fileAddress = eth.Addresses[0]
@@ -274,21 +252,22 @@ func (uc *ConfigureNetworkUseCase) isDrifted(ctx context.Context, dbIface entiti
 		(dbIface.CIDR != fileCIDR) ||
 		(dbIface.MTU != fileMTU)
 
-	uc.logger.WithFields(logrus.Fields{
-		"interface_id":   dbIface.ID,
-		"mac_address":    dbIface.MacAddress,
-		"db_address":     dbIface.Address,
-		"file_address":   fileAddress,
-		"db_cidr":        dbIface.CIDR,
-		"file_cidr":      fileCIDR,
-		"db_mtu":         dbIface.MTU,
-		"file_mtu":       fileMTU,
-		"drift_condition_1": (!hasAddresses && dbIface.Address != ""),
-		"drift_condition_2": (dbIface.Address != fileAddress),
-		"drift_condition_3": (dbIface.CIDR != fileCIDR),
-		"drift_condition_4": (dbIface.MTU != fileMTU),
-		"is_drifted_result": isDrifted,
-	}).Debug("드리프트 감지 상세 정보")
+	if isDrifted {
+		uc.logger.WithFields(logrus.Fields{
+			"interface_id":   dbIface.ID,
+			"mac_address":    dbIface.MacAddress,
+			"db_address":     dbIface.Address,
+			"file_address":   fileAddress,
+			"db_cidr":        dbIface.CIDR,
+			"file_cidr":      fileCIDR,
+			"db_mtu":         dbIface.MTU,
+			"file_mtu":       fileMTU,
+			"drift_condition_1": (!hasAddresses && dbIface.Address != ""),
+			"drift_condition_2": (dbIface.Address != fileAddress),
+			"drift_condition_3": (dbIface.CIDR != fileCIDR),
+			"drift_condition_4": (dbIface.MTU != fileMTU),
+		}).Debug("드리프트 감지됨")
+	}
 
 	return isDrifted
 }
