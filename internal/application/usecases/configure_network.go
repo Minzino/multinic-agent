@@ -235,49 +235,52 @@ func (uc *ConfigureNetworkUseCase) syncConfiguredInterfaces(ctx context.Context,
 				}
 			}
 			fileMTU = eth.MTU
-			break // Assuming one ethernet per file
-		}
 
-		if fileMAC == "" {
-			continue
-		}
-
-		// 4. Compare with DB data
-		dbIface, ok := macToDBIface[fileMAC]
-		if !ok {
-			// This file's MAC is not in our DB for this node. It might be an orphan.
-			// The orphan deletion logic will handle this.
-			continue
-		}
-
-		// Check for drift - now includes CIDR
-		isDrifted := (dbIface.Address != fileAddress) ||
-			(dbIface.CIDR != fileCIDR) ||
-			(dbIface.MTU != fileMTU)
-
-		if isDrifted {
-			uc.logger.WithFields(logrus.Fields{
-				"interface":    interfaceName,
-				"db_address":   dbIface.Address,
-				"file_address": fileAddress,
-				"db_cidr":      dbIface.CIDR,
-				"file_cidr":    fileCIDR,
-				"db_mtu":       dbIface.MTU,
-				"file_mtu":     fileMTU,
-			}).Info("설정 변경 감지. 동기화를 시작합니다.")
-
-			ifaceName, err := entities.NewInterfaceName(interfaceName)
-			if err != nil {
-				uc.logger.WithError(err).Error("잘못된 인터페이스 이름")
+			if fileMAC == "" {
 				continue
 			}
 
-			// Re-apply the configuration from DB data
-			if err := uc.configurer.Configure(ctx, dbIface, ifaceName); err != nil {
-				uc.logger.WithError(err).WithField("interface", interfaceName).Error("설정 동기화 실패")
-			} else {
-				uc.logger.WithField("interface", interfaceName).Info("설정 동기화 성공")
+			// 4. Compare with DB data
+			dbIface, ok := macToDBIface[fileMAC]
+			if !ok {
+				// This file's MAC is not in our DB for this node. It might be an orphan.
+				// The orphan deletion logic will handle this.
+				continue
 			}
+
+			// Check for drift
+			// 1. The file is old (no addresses) but the DB expects an IP
+			// 2. Or, the file values do not match the DB values
+			isDrifted := (len(eth.Addresses) == 0 && dbIface.Address != "") ||
+				(dbIface.Address != fileAddress) ||
+				(dbIface.CIDR != fileCIDR) ||
+				(dbIface.MTU != fileMTU)
+
+			if isDrifted {
+				uc.logger.WithFields(logrus.Fields{
+					"interface":    interfaceName,
+					"db_address":   dbIface.Address,
+					"file_address": fileAddress,
+					"db_cidr":      dbIface.CIDR,
+					"file_cidr":    fileCIDR,
+					"db_mtu":       dbIface.MTU,
+					"file_mtu":     fileMTU,
+				}).Info("설정 변경 감지. 동기화를 시작합니다.")
+
+				ifaceName, err := entities.NewInterfaceName(interfaceName)
+				if err != nil {
+					uc.logger.WithError(err).Error("잘못된 인터페이스 이름")
+					continue
+				}
+
+				// Re-apply the configuration from DB data
+				if err := uc.configurer.Configure(ctx, dbIface, ifaceName); err != nil {
+					uc.logger.WithError(err).WithField("interface", interfaceName).Error("설정 동기화 실패")
+				} else {
+					uc.logger.WithField("interface", interfaceName).Info("설정 동기화 성공")
+				}
+			}
+			break // Assuming one ethernet per file
 		}
 	}
 }
