@@ -130,11 +130,10 @@ func (a *NetplanAdapter) Rollback(ctx context.Context, name string) error {
 
 // testNetplan tests the configuration with netplan try command
 func (a *NetplanAdapter) testNetplan(ctx context.Context) error {
-	// In container environment, use nsenter to run in host namespace
+	// Direct execution in host daemon mode
 	_, err := a.commandExecutor.ExecuteWithTimeout(
 		ctx,
 		120*time.Second,
-		"nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid",
 		"netplan", "try", "--timeout=120",
 	)
 	return err
@@ -142,11 +141,10 @@ func (a *NetplanAdapter) testNetplan(ctx context.Context) error {
 
 // applyNetplan applies the configuration with netplan apply command
 func (a *NetplanAdapter) applyNetplan(ctx context.Context) error {
-	// In container environment, use nsenter to run in host namespace
+	// Direct execution in host daemon mode
 	_, err := a.commandExecutor.ExecuteWithTimeout(
 		ctx,
 		30*time.Second,
-		"nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid",
 		"netplan", "apply",
 	)
 	return err

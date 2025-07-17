@@ -3,11 +3,11 @@ kind: DaemonSet
 metadata:
   name: {{ include "multinic-agent.fullname" . }}
   labels:
-    {{- include "multinic-agent.labels" . | nindent 4 }}
+    {{ include "multinic-agent.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      {{- include "multinic-agent.selectorLabels" . | nindent 6 }}
+      {{ include "multinic-agent.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
