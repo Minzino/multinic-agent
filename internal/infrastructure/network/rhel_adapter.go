@@ -19,7 +19,6 @@ type RHELAdapter struct {
 	commandExecutor interfaces.CommandExecutor
 	fileSystem      interfaces.FileSystem
 	logger          *logrus.Logger
-	isContainer     bool // indicates if running in container
 }
 
 // NewRHELAdapter creates a new RHELAdapter.
@@ -28,17 +27,10 @@ func NewRHELAdapter(
 	fileSystem interfaces.FileSystem,
 	logger *logrus.Logger,
 ) *RHELAdapter {
-	// Check if running in container by checking if /host exists
-	isContainer := false
-	if _, err := executor.ExecuteWithTimeout(context.Background(), 1*time.Second, "test", "-d", "/host"); err == nil {
-		isContainer = true
-	}
-
 	return &RHELAdapter{
 		commandExecutor: executor,
 		fileSystem:      fileSystem,
 		logger:          logger,
-		isContainer:     isContainer,
 	}
 }
 
@@ -49,15 +41,9 @@ func (a *RHELAdapter) GetConfigDir() string {
 	return "/etc/sysconfig/network-scripts"
 }
 
-// execCommand is a helper method to execute commands with nsenter if in container
+// execCommand is a helper method to execute commands
 func (a *RHELAdapter) execCommand(ctx context.Context, command string, args ...string) ([]byte, error) {
-	if a.isContainer {
-		// In container environment, use nsenter to run in host namespace
-		cmdArgs := []string{"--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", command}
-		cmdArgs = append(cmdArgs, args...)
-		return a.commandExecutor.ExecuteWithTimeout(ctx, 30*time.Second, "nsenter", cmdArgs...)
-	}
-	// Direct execution on host
+	// Direct execution in host daemon mode
 	return a.commandExecutor.ExecuteWithTimeout(ctx, 30*time.Second, command, args...)
 }
 
