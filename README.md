@@ -105,6 +105,20 @@ kubectl port-forward -n multinic-system daemonset/multinic-agent 8080:8080
 curl http://localhost:8080/
 ```
 
+### 대체 배포 방법: Host Daemon Mode
+
+보안 요구사항이 엄격한 환경에서는 컨테이너 권한 문제를 회피하기 위해 호스트 데몬 모드로 실행할 수 있습니다.
+
+```bash
+# 설치
+sudo ./scripts/install-daemon.sh
+
+# 상태 확인
+sudo systemctl status multinic-agent
+```
+
+자세한 내용은 [README_DAEMON.md](README_DAEMON.md)를 참조하세요.
+
 ## 작동 원리
 
 ### 설정 변경 자동 감지
